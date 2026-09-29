@@ -12,7 +12,8 @@ readonly ARCHIVE="certificate-manager-full-$EXPECTED_VERSION.tar.gz"
 cd release-artifact
 sha256sum -c "$ARCHIVE.sha256"
 readonly DIGEST="$(sha256sum "$ARCHIVE" | cut -d ' ' -f 1)"
-readonly REMOTE_ARCHIVE="/var/lib/certificate-manager-ci/incoming/release-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.tar.gz"
+# Keep the same remote path when rerunning a failed job so rsync can resume a partial EXE upload.
+readonly REMOTE_ARCHIVE="/var/lib/certificate-manager-ci/incoming/release-$GITHUB_RUN_ID-1.tar.gz"
 readonly SSH_DIR="$(mktemp -d "$RUNNER_TEMP/certificate-manager-ssh.XXXXXX")"
 cleanup() {
     [[ "$SSH_DIR" == "$RUNNER_TEMP"/certificate-manager-ssh.* && -d "$SSH_DIR" && ! -L "$SSH_DIR" ]] && rm -rf -- "$SSH_DIR"
@@ -23,5 +24,6 @@ printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$SSH_DIR/known_hosts"
 unset DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS
 readonly TARGET="$DEPLOY_USER@$DEPLOY_HOST"
 ssh_options=(-i "$SSH_DIR/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$SSH_DIR/known_hosts" -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=3)
-scp "${ssh_options[@]}" -P "$SSH_PORT" "$ARCHIVE" "$TARGET:$REMOTE_ARCHIVE"
+readonly RSYNC_SSH="ssh -p $SSH_PORT -i $SSH_DIR/key -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$SSH_DIR/known_hosts -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=3"
+rsync --partial --append-verify --no-compress --info=progress2 -e "$RSYNC_SSH" "$ARCHIVE" "$TARGET:$REMOTE_ARCHIVE"
 ssh "${ssh_options[@]}" -p "$SSH_PORT" "$TARGET" "sudo -n /usr/local/sbin/certificate-manager-ci-deploy '$REMOTE_ARCHIVE' '$DIGEST'"

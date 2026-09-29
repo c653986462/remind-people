@@ -97,7 +97,7 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 90
     environment: production
     permissions:
       contents: read
@@ -121,6 +121,12 @@ jobs:
         with:
           name: full-release-${{ needs.build.outputs.version }}
           path: release-artifact
+      - name: Ensure resumable transfer is available
+        run: |
+          if ! command -v rsync >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y rsync
+          fi
       - name: Upload and deploy using a restricted server account
         run: bash deploy/ci/deploy-from-actions.sh
       - name: Verify the public website and desktop version

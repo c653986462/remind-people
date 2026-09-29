@@ -85,6 +85,7 @@ git push origin main
 - 后端启动失败会恢复旧代码；健康检查前不发布桌面新清单。数据库新增表属于加法变更，破坏性迁移需要单独规划。
 - SSH 使用预先核实的 known_hosts，绝不关闭主机指纹校验；密钥不会发给 PR 构建。
 - 全部产物通过 GitHub Actions Artifact 保存 14 天，历史安装器保留在服务器。构建消耗 Actions 配额，以 GitHub 账号实际额度为准。
+- Windows 安装包约 120 MB，GitHub 托管 Runner 到国内服务器的上传可能很慢。部署使用 rsync 断点续传，最长等待 90 分钟；失败后在 Actions 中选 Re-run failed jobs，可续传同一包。不要每次都重新触发全新工作流，否则会生成不同版本的安装包。
 - 当前 EXE 未配置代码签名证书，Windows 仍可能提示未知发布者。设置 CI/CD 不会自动获得代码签名。
 
 查看日志：仓库 Actions 页面；服务器 `journalctl -t certificate-manager-ci --no-pager` 和 `journalctl -u certificate-manager --no-pager`。
