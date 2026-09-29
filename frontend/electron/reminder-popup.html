@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>证书事项提醒</title>
+    <link rel="stylesheet" href="./reminder-popup.css" />
+  </head>
+  <body>
+    <main class="card" role="alert">
+      <div class="heading"><span class="mark">证</span><div><h1>证书事项提醒</h1><p id="date"></p></div></div>
+      <p id="summary" class="summary"></p>
+      <div class="actions">
+        <button id="later" class="secondary" type="button">稍后提醒</button>
+        <button id="dismiss" class="primary" type="button">关闭</button>
+      </div>
+    </main>
+    <script src="./reminder-popup.js"></script>
+  </body>
+</html>

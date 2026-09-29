@@ -1,0 +1,12 @@
+[Unit]
+Description=Check Certificate Manager IP TLS renewal hourly
+
+[Timer]
+OnBootSec=10min
+OnCalendar=hourly
+RandomizedDelaySec=5min
+Persistent=true
+Unit=certificate-manager-ip-renew.service
+
+[Install]
+WantedBy=timers.target

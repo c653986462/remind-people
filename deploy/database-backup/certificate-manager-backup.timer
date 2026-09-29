@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Certificate Manager database backup at 03:00 China time
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Asia/Shanghai
+Persistent=true
+AccuracySec=1min
+Unit=certificate-manager-backup.service
+
+[Install]
+WantedBy=timers.target

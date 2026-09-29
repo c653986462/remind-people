@@ -1,0 +1,24 @@
+[Unit]
+Description=Verified online SQLite backup for Certificate Manager
+After=certificate-manager.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/certificate-manager
+EnvironmentFile=/opt/certificate-manager/.env
+ExecStart=/opt/certificate-manager/.venv/bin/python /opt/certificate-manager/deploy/database-backup/backup.py --retain-days 30
+UMask=0077
+TimeoutStartSec=20min
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/backups/certificate-manager /opt/certificate-manager/data
+ProtectKernelTunables=true
+ProtectControlGroups=true
+StandardOutput=journal
+StandardError=journal
