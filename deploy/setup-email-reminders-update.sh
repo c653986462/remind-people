@@ -35,7 +35,7 @@ if ! cp -a "$PACKAGE_ROOT/app/." "$APP_DIR/app/" \
 fi
 chown -R root:www-data "$APP_DIR/app" "$APP_DIR/frontend/dist"
 
-if ! "$APP_DIR/.venv/bin/python" -m py_compile "$APP_DIR/app/main.py" "$APP_DIR/app/models.py" "$APP_DIR/app/services.py" "$APP_DIR/app/email_service.py"; then
+if ! "$APP_DIR/.venv/bin/python" -I -m py_compile "$APP_DIR/app/main.py" "$APP_DIR/app/models.py" "$APP_DIR/app/services.py" "$APP_DIR/app/email_service.py"; then
     rollback
     exit 1
 fi

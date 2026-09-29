@@ -9,12 +9,12 @@ exec 9>/run/lock/certificate-manager-deploy.lock
 flock -x 9
 
 # A release cannot proceed if any component or desktop checksum is missing.
-"$APP_DIR/.venv/bin/python" "$TOOLS_DIR/verify-full-release.py" "$PACKAGE_ROOT"
-release_version=$("$APP_DIR/.venv/bin/python" -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$PACKAGE_ROOT/release.json")
+"$APP_DIR/.venv/bin/python" -I "$TOOLS_DIR/verify-full-release.py" "$PACKAGE_ROOT"
+release_version=$("$APP_DIR/.venv/bin/python" -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$PACKAGE_ROOT/release.json")
 readonly INSTALLER="证事 Setup $release_version.exe"
 readonly UPDATE_DIR="$APP_DIR/desktop-updates"
 if [[ -f "$UPDATE_DIR/latest.yml" ]]; then
-    "$APP_DIR/.venv/bin/python" - "$UPDATE_DIR/latest.yml" "$release_version" <<'PY'
+    "$APP_DIR/.venv/bin/python" -I - "$UPDATE_DIR/latest.yml" "$release_version" <<'PY'
 import re, sys
 from pathlib import Path
 match = re.search(r'^version:\s*(\d+\.\d+\.\d+)\s*$', Path(sys.argv[1]).read_text(), re.M)

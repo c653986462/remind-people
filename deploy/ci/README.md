@@ -24,7 +24,7 @@ scp "C:\github\remind-people\deploy\packages\certificate-manager-ci-setup-202609
 在服务器执行：
 
 ```bash
-echo '528EB667923D68EDD0E6B404BBB79783C1A9A159564735B3EF65A2A795BDF919  /tmp/certificate-manager-ci-setup-20260929.tar.gz' | sha256sum -c - &&
+echo 'ADE53E49C2E9BB46DE6E91EA18E00C0A70F3726EA67DD320C095380F3766ABE9  /tmp/certificate-manager-ci-setup-20260929.tar.gz' | sha256sum -c - &&
 ci_setup_stage=$(mktemp -d /tmp/certificate-manager-ci-setup.XXXXXX) &&
 tar -xzf /tmp/certificate-manager-ci-setup-20260929.tar.gz -C "$ci_setup_stage" &&
 sudo bash "$ci_setup_stage/deploy/ci/setup-server.sh" /tmp/github-actions.pub

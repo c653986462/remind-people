@@ -9,6 +9,8 @@ readonly INCOMING=/var/lib/certificate-manager-ci/incoming
 readonly WORK_DIR=/var/lib/certificate-manager-ci/work
 readonly TOOLS=/usr/local/lib/certificate-manager-ci
 readonly APP_DIR=/opt/certificate-manager
+# Never import Python modules from the SSH caller's writable working directory.
+cd "$TOOLS"
 [[ "$ARCHIVE" =~ ^/var/lib/certificate-manager-ci/incoming/release-[0-9]+-[0-9]+\.tar\.gz$ && "$DIGEST" =~ ^[a-f0-9]{64}$ ]]
 [[ -f "$ARCHIVE" && ! -L "$ARCHIVE" && "$(realpath "$ARCHIVE")" == "$ARCHIVE" ]]
 [[ "$(stat -c %s "$ARCHIVE")" -le 536870912 ]]
@@ -20,11 +22,11 @@ trap cleanup EXIT
 # Copy to a root-private snapshot before checking or extracting mutable uploaded data.
 cp -- "$ARCHIVE" "$STAGE/archive.tar.gz"
 printf '%s  %s\n' "$DIGEST" "$STAGE/archive.tar.gz" | sha256sum -c -
-"$APP_DIR/.venv/bin/python" "$TOOLS/safe-extract.py" "$STAGE/archive.tar.gz" "$STAGE/release"
-"$APP_DIR/.venv/bin/python" "$TOOLS/verify-full-release.py" "$STAGE/release"
+"$APP_DIR/.venv/bin/python" -I "$TOOLS/safe-extract.py" "$STAGE/archive.tar.gz" "$STAGE/release"
+"$APP_DIR/.venv/bin/python" -I "$TOOLS/verify-full-release.py" "$STAGE/release"
 
 # Never install arbitrary uploaded build hooks as root. Missing/upgraded dependencies need admin preparation.
-"$APP_DIR/.venv/bin/python" - "$STAGE/release/requirements.txt" <<'PY'
+"$APP_DIR/.venv/bin/python" -I - "$STAGE/release/requirements.txt" <<'PY'
 from importlib import metadata
 from pathlib import Path
 from pip._vendor.packaging.requirements import Requirement
