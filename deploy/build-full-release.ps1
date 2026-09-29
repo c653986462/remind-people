@@ -1,7 +1,11 @@
-param([switch]$SkipBuild)
+param([switch]$SkipBuild, [string]$PythonExecutable = '')
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $frontendRoot = Join-Path $projectRoot 'frontend'
+if (-not $PythonExecutable) {
+    $localPython = Join-Path $projectRoot '.venv/Scripts/python.exe'
+    $PythonExecutable = if (Test-Path -LiteralPath $localPython) { $localPython } else { 'python' }
+}
 $version = (Get-Content (Join-Path $frontendRoot 'package.json') -Raw | ConvertFrom-Json).version
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Use a stable x.y.z release version.' }
 if (-not $SkipBuild) {
@@ -56,11 +60,14 @@ Get-ChildItem -LiteralPath $stagePath -File -Recurse | Sort-Object FullName | Fo
     $hashes[$relative] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 $manifest = [ordered]@{version=$version; installer=$installerName; created_at=$date; files=$hashes}
+if ($env:GITHUB_SHA) { $manifest['source_commit'] = $env:GITHUB_SHA }
 [IO.File]::WriteAllText((Join-Path $stagePath 'release.json'), ($manifest | ConvertTo-Json -Depth 5), [Text.UTF8Encoding]::new($false))
-& (Join-Path $projectRoot '.venv/Scripts/python.exe') (Join-Path $PSScriptRoot 'verify-full-release.py') $stagePath
+& $PythonExecutable (Join-Path $PSScriptRoot 'verify-full-release.py') $stagePath
 if ($LASTEXITCODE -ne 0) { throw 'Full release verification failed.' }
 & tar.exe -czf $archivePath -C $stagePath app frontend requirements.txt deploy desktop-updates release.json
 if ($LASTEXITCODE -ne 0) { throw 'Archive creation failed.' }
 Write-Output "Full release: $archivePath"
-Write-Output "SHA256: $((Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash)"
+$archiveHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash
+[IO.File]::WriteAllText("$archivePath.sha256", "$($archiveHash.ToLowerInvariant())  $([IO.Path]::GetFileName($archivePath))`n", [Text.UTF8Encoding]::new($false))
+Write-Output "SHA256: $archiveHash"
 Write-Output "Staging files retained: $stagePath"

@@ -5,6 +5,7 @@ data/
 uploads/
 backups/
 .pnpm-store/
+.ci-keys/
 .env
 .env.*
 !.env.example

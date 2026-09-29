@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
     "desktop:dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
-    "desktop:build": "npm run build && electron-builder --win nsis --config electron-builder.cjs"
+    "desktop:build": "npm run build && electron-builder --win nsis --config electron-builder.cjs --publish never"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",

@@ -85,6 +85,12 @@ SMTP 配置项：`EMAIL_SMTP_HOST`、`EMAIL_SMTP_PORT`、`EMAIL_SMTP_USERNAME`�
 
 ### 统一版本发布（默认流程）
 
+已提供 GitHub Actions CI/CD：推送 `main` 后自动测试、构建 Windows EXE 和完整发布包，
+配置一次部署密钥并启用 `DEPLOY_ENABLED=true` 后自动更新线上所有组件。
+版本号随 workflow run number 自动递增；PR 不部署，生产部署串行，更新清单最后发布。
+首次服务器接入和 GitHub Secrets 设置见 [CI/CD 接入说明](deploy/ci/README.md)。
+未完成接入时，自动测试和构建照常运行，部署 job 跳过；以下手工打包作为备用流程。
+
 每次更新必须同时构建并发布后端、网页、下载官网和 Windows 桌面安装包，不能只发布某一端。
 先提升 `frontend/package.json` 的版本号，再在项目根目录执行
 `powershell -ExecutionPolicy Bypass -File deploy/build-full-release.ps1`。

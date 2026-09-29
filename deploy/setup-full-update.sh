@@ -4,9 +4,12 @@ umask 077
 readonly APP_DIR=/opt/certificate-manager
 readonly PACKAGE_ROOT="$(realpath "${1:?Usage: sudo bash setup-full-update.sh extracted-release-directory}")"
 [[ $EUID -eq 0 ]] || { printf 'Please run with sudo.\n' >&2; exit 1; }
+readonly TOOLS_DIR="${CM_TRUSTED_DEPLOY_TOOLS:-$PACKAGE_ROOT/deploy}"
+exec 9>/run/lock/certificate-manager-deploy.lock
+flock -x 9
 
 # A release cannot proceed if any component or desktop checksum is missing.
-"$APP_DIR/.venv/bin/python" "$PACKAGE_ROOT/deploy/verify-full-release.py" "$PACKAGE_ROOT"
+"$APP_DIR/.venv/bin/python" "$TOOLS_DIR/verify-full-release.py" "$PACKAGE_ROOT"
 release_version=$("$APP_DIR/.venv/bin/python" -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$PACKAGE_ROOT/release.json")
 readonly INSTALLER="证事 Setup $release_version.exe"
 readonly UPDATE_DIR="$APP_DIR/desktop-updates"
@@ -40,7 +43,7 @@ if [[ -f "$UPDATE_DIR/latest.yml" ]]; then cp -a "$UPDATE_DIR/latest.yml" "$RELE
 if [[ -f "$APP_DIR/release.json" ]]; then cp -a "$APP_DIR/release.json" "$RELEASE_BACKUP/"; fi
 
 # Existing tested updater handles online DB backup, code backup, restart, and health rollback.
-bash "$PACKAGE_ROOT/deploy/setup-email-reminders-update.sh" "$PACKAGE_ROOT"
+bash "$TOOLS_DIR/setup-email-reminders-update.sh" "$PACKAGE_ROOT"
 install -o root -g www-data -m 0644 "$PACKAGE_ROOT/release.json" "$APP_DIR/release.json"
 install -o root -g www-data -m 0644 "$PACKAGE_ROOT/desktop-updates/latest.yml" "$UPDATE_DIR/.latest-full.tmp"
 mv -f "$UPDATE_DIR/.latest-full.tmp" "$UPDATE_DIR/latest.yml"
