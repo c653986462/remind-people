@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 077
+readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS GITHUB_RUN_ID GITHUB_RUN_ATTEMPT; do
     [[ -n "${!name:-}" ]] || { printf 'Missing GitHub Actions setting: %s\n' "$name" >&2; exit 1; }
 done
@@ -43,7 +44,22 @@ printf 'Checking SSH authentication and pinned host key...\n'
 timeout --signal=TERM --kill-after=10s 45s ssh "${ssh_options[@]}" -p "$SSH_PORT" "$TARGET" true
 printf 'SSH verified. Uploading %s package (%s bytes); each failed transfer resumes the same remote file.\n' "$DEPLOY_KIND" "$(stat -c %s "$ARCHIVE")"
 uploaded=false
+if [[ "$DEPLOY_KIND" == desktop && -n "${GH_ARTIFACT_TOKEN:-}" ]]; then
+    printf 'Trying bounded parallel HTTPS artifact pull on the server (no API token sent to server)...\n'
+    for pull_attempt in 1 2 3; do
+        printf 'Direct pull attempt %s/3; completed/partial ranges are retained for resume.\n' "$pull_attempt"
+        if timeout --signal=TERM --kill-after=10s 600s python3 "$SCRIPT_DIR/pull-artifact.py" "$ARCHIVE" "$DIGEST" "$REMOTE_ARCHIVE" ssh "${ssh_options[@]}" -p "$SSH_PORT" "$TARGET"; then
+            uploaded=true
+            break
+        fi
+    done
+    if [[ "$uploaded" != true ]]; then
+        printf 'Direct pull unavailable; falling back to the same resumable SSH upload.\n'
+    fi
+fi
+unset GH_ARTIFACT_TOKEN
 for attempt in 1 2 3; do
+    [[ "$uploaded" != true ]] || break
     printf 'Upload attempt %s/3; transfer budget %s seconds.\n' "$attempt" "$transfer_seconds"
     if timeout --signal=TERM --kill-after=30s "${transfer_seconds}s" rsync --timeout=120 --partial --append-verify --no-compress --info=progress2 -e "$RSYNC_SSH" "$ARCHIVE" "$TARGET:$REMOTE_ARCHIVE"; then
         uploaded=true

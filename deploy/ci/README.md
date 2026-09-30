@@ -86,7 +86,8 @@ git push origin main
 - 候选后端启动或健康检查失败时不会切流；切流失败会恢复旧流量。旧实例留作快速回退；健康检查前不发布桌面新清单。数据库新增表属于加法变更，破坏性迁移需要单独规划。
 - SSH 使用预先核实的 known_hosts，绝不关闭主机指纹校验；密钥不会发给 PR 构建。
 - 全部产物通过 GitHub Actions Artifact 保存 14 天，历史安装器保留在服务器。构建消耗 Actions 配额，以 GitHub 账号实际额度为准。
-- Windows 安装包约 120 MB，GitHub 托管 Runner 到国内服务器的上传可能很慢。网页 job 上限 30 分钟，单次上传 3 分钟最多重试 3 次；桌面 job 上限 240 分钟，单次上传 70 分钟最多重试 3 次。两者均检查 SSH 身份/固定指纹，使用 rsync 校验式断点续传和 120 秒无数据超时。失败后 Re-run failed jobs 复用相同 artifact 和远端路径续传；不完整上传绝不调用服务器发布入口。网页使用 `release-运行ID-1.tar.gz`，桌面使用 `release-运行ID-2.tar.gz`，互不覆盖。
+- Windows 安装包约 120 MB，GitHub 托管 Runner 到国内服务器的上传可能很慢。网页 job 上限 30 分钟，单次上传 3 分钟最多重试 3 次；桌面 job 上限 270 分钟，备用 SSH 单次上传 70 分钟最多重试 3 次。两者均检查 SSH 身份/固定指纹，使用 rsync 校验式断点续传和 120 秒无数据超时。失败后 Re-run failed jobs 复用相同 artifact 和远端路径续传；不完整上传绝不调用服务器发布入口。网页使用 `release-运行ID-1.tar.gz`，桌面使用 `release-运行ID-2.tar.gz`，互不覆盖。
+- 桌面包优先由服务器通过 HTTPS 并行拉取 GitHub Artifact（16 个校验范围、每次最多 10 分钟，最多 3 次续传），同时核验 GitHub ZIP 摘要和 Runner 发布包摘要，再原子放入暂存路径。超时保留分段字节，新的临时链接只补齐缺失范围；完整成功后清理缓存，失败缓存不包含链接或凭据。跨境网络仍可能不稳定；失败自动退回上述 SSH 续传。下载以 `certmgr-deploy` 身份运行，不增加 sudo 权限；临时下载链接通过 SSH 标准输入传递，不进入日志/命令参数，GitHub API token 只留在 Runner。桌面发布 job 仅增加 `actions: read` 读取构建产物的权限。此优化不需要再次升级服务器 root 工具。
 - 桌面发布必须对应当前活动的服务器 `source_commit` 和 `run_id`；若较新网页版本已上线，旧任务不可发布过时桌面清单。服务器拒绝较旧 CI run number；桌面禁止版本降级、同版本不同安装器。公网 `/deployment.json` 用来验证实际部署的提交和运行 ID，不包含任何凭据。
 - 当前 EXE 未配置代码签名证书，Windows 仍可能提示未知发布者。设置 CI/CD 不会自动获得代码签名。
 

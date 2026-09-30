@@ -7,7 +7,7 @@ cleanup() {
 }
 trap cleanup EXIT
 mkdir "$TEST_ROOT/bin" "$TEST_ROOT/release-artifact" "$TEST_ROOT/runtime"
-for name in timeout sleep ssh rsync; do
+for name in timeout sleep ssh rsync python3; do
     cp "$SCRIPT_DIR/test-fixtures/transfer-command.sh" "$TEST_ROOT/bin/$name"
     chmod +x "$TEST_ROOT/bin/$name"
 done
@@ -38,4 +38,16 @@ rm -f "$TEST_ROOT/count" "$TEST_ROOT/ssh.log" "$TEST_ROOT/rsync.log"
 if FAIL_AUTH=true DEPLOY_KIND=server bash "$SCRIPT_DIR/deploy-from-actions.sh"; then echo 'Bad authentication unexpectedly succeeded' >&2; exit 1; fi
 [[ ! -e "$TEST_ROOT/rsync.log" ]]
 [[ -z "$(find "$TEST_ROOT/runtime" -mindepth 1 -print -quit)" ]]
-echo 'Transfer retry, resume paths, preflight authentication and no-publication-on-failure checks passed.'
+rm -f "$TEST_ROOT/ssh.log"
+GH_ARTIFACT_TOKEN=test-token DEPLOY_KIND=desktop bash "$SCRIPT_DIR/deploy-from-actions.sh"
+[[ -e "$TEST_ROOT/pull.log" && ! -e "$TEST_ROOT/rsync.log" ]]
+grep -q " desktop$" "$TEST_ROOT/ssh.log"
+rm -f "$TEST_ROOT/pull.log" "$TEST_ROOT/ssh.log"
+GH_ARTIFACT_TOKEN=test-token FAIL_PULL=true DEPLOY_KIND=desktop bash "$SCRIPT_DIR/deploy-from-actions.sh"
+[[ -e "$TEST_ROOT/pull.log" && "$(<"$TEST_ROOT/count")" == 2 ]]
+grep -q " desktop$" "$TEST_ROOT/ssh.log"
+[[ -z "$(find "$TEST_ROOT/runtime" -mindepth 1 -print -quit)" ]]
+mkdir -p "$TEST_ROOT/deploy/ci"
+cp "$SCRIPT_DIR/deploy-from-actions.sh" "$TEST_ROOT/deploy/ci/deploy-from-actions.sh"
+GH_ARTIFACT_TOKEN=test-token DEPLOY_KIND=desktop bash deploy/ci/deploy-from-actions.sh
+echo 'Direct pull, SSH fallback, retries, authentication and no-publication-on-failure checks passed.'

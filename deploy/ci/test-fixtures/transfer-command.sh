@@ -7,6 +7,10 @@ case "$(basename "$0")" in
         exec "$@"
         ;;
     sleep) exit 0 ;;
+    python3)
+        printf '%s\n' 'Direct pull attempted' >> "$TRANSFER_TEST_ROOT/pull.log"
+        [[ "${FAIL_PULL:-false}" != true ]]
+        ;;
     ssh)
         printf '%s\n' "$*" >> "$TRANSFER_TEST_ROOT/ssh.log"
         [[ "${FAIL_AUTH:-false}" != true ]]

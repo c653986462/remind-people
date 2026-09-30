@@ -45,6 +45,7 @@ jobs:
       - run: python deploy/test_verify_full_release.py
       - run: python deploy/ci/test_ci_deploy.py
       - run: python deploy/ci/test_publication_guards.py
+      - run: python deploy/ci/test_artifact_pull.py
       - name: Check deployment shell syntax
         if: runner.os == 'Linux'
         run: find deploy -name '*.sh' -print0 | xargs -0 -n1 bash -n
@@ -213,8 +214,11 @@ jobs:
     needs: [deploy_web, build_desktop]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    timeout-minutes: 270
     environment: production
+    permissions:
+      contents: read
+      actions: read
     concurrency:
       group: certificate-manager-desktop-publication
       cancel-in-progress: false
@@ -241,7 +245,9 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y rsync
           fi
-      - name: Upload installer with three resumable attempts and publish metadata
+      - name: Pull installer in parallel with resumable SSH fallback and publish metadata
+        env:
+          GH_ARTIFACT_TOKEN: ${{ github.token }}
         run: bash deploy/ci/deploy-from-actions.sh
       - name: Verify desktop version and installer download
         run: |
