@@ -161,7 +161,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: full-release-${{ needs.build.outputs.version }}
+          name: release-${{ github.run_id }}
           path: release-artifact
       - name: Ensure resumable transfer is available
         run: |
