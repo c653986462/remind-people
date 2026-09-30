@@ -24,6 +24,10 @@ Get-ChildItem (Join-Path $projectRoot 'app') -Filter '*.py' -File -Recurse | For
     Copy-Item -LiteralPath $_.FullName -Destination $destination
 }
 Copy-Item -LiteralPath (Join-Path $frontendRoot 'dist') -Destination (Join-Path $stagePath 'frontend') -Recurse
+if ($env:GITHUB_SHA) {
+    $deployment = [ordered]@{source_commit=$env:GITHUB_SHA; run_id=$runId; run_number=$env:GITHUB_RUN_NUMBER}
+    [IO.File]::WriteAllText((Join-Path $stagePath 'frontend/dist/deployment.json'), ($deployment | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+}
 Copy-Item -LiteralPath (Join-Path $projectRoot 'requirements.txt') -Destination $stagePath
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'setup-email-reminders-update.sh') -Destination (Join-Path $stagePath 'deploy')
 $hashes = [ordered]@{}
@@ -33,6 +37,7 @@ Get-ChildItem -LiteralPath $stagePath -File -Recurse | Sort-Object FullName | Fo
 }
 $manifest = [ordered]@{run_id=$runId; created_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ'); files=$hashes}
 if ($env:GITHUB_SHA) { $manifest['source_commit'] = $env:GITHUB_SHA }
+if ($env:GITHUB_RUN_NUMBER) { $manifest['run_number'] = $env:GITHUB_RUN_NUMBER }
 [IO.File]::WriteAllText((Join-Path $stagePath 'server-release.json'), ($manifest | ConvertTo-Json -Depth 5), [Text.UTF8Encoding]::new($false))
 & $PythonExecutable (Join-Path $PSScriptRoot 'ci/verify-server-release.py') $stagePath
 if ($LASTEXITCODE -ne 0) { throw 'Server release verification failed.' }

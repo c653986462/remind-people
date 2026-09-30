@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 class PersonBase(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     phone: str | None = None
+    identity_number: str | None = Field(default=None, max_length=18)
     email: str | None = None
     department: str | None = None
     notes: str | None = None
@@ -36,7 +37,8 @@ class PersonCertificateBase(BaseModel):
     person_id: int
     certificate_id: int
     certificate_no: str | None = None
-    issue_date: date | None = None
+    validity_start_date: date | None = None
+    validity_end_date: date | None = None
     expiry_date: date | None = None
     continuing_education_date: date | None = None
     renewal_date: date | None = None

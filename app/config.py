@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     session_ttl_hours: int = Field(default=12, ge=1, le=168)
     session_cookie_secure: bool = True
     allowed_hosts: str = "localhost,127.0.0.1"
+    scheduler_enabled: bool = True
 
     @property
     def allowed_origins(self) -> list[str]:

@@ -30,6 +30,16 @@ rm -f -- "$AUTH_FILE"
 for file in setup-full-update.sh setup-email-reminders-update.sh verify-full-release.py; do
     install -o root -g root -m 0644 "$DEPLOY_DIR/$file" "$TOOLS/$file"
 done
+install -o root -g root -m 0755 "$SCRIPT_DIR/blue-green-deploy.sh" "$TOOLS/blue-green-deploy.sh"
+install -o root -g root -m 0755 "$SCRIPT_DIR/blue-green-rollback.sh" "$TOOLS/blue-green-rollback.sh"
+install -o root -g root -m 0755 "$SCRIPT_DIR/publish-desktop.sh" "$TOOLS/publish-desktop.sh"
+for file in check-release-order.py check-desktop-target.py; do
+    install -o root -g root -m 0644 "$SCRIPT_DIR/$file" "$TOOLS/$file"
+done
+install -o root -g root -m 0644 "$SCRIPT_DIR/prepare-slot.py" "$TOOLS/prepare-slot.py"
+install -o root -g root -m 0644 "$DEPLOY_DIR/certificate-manager@.service" "$TOOLS/certificate-manager@.service"
+install -o root -g root -m 0644 "$DEPLOY_DIR/certificate-manager.service" "$TOOLS/certificate-manager.service"
+install -o root -g root -m 0644 "$DEPLOY_DIR/certificate-manager-upstream.nginx.conf" "$TOOLS/certificate-manager-upstream.nginx.conf"
 install -o root -g root -m 0644 "$SCRIPT_DIR/verify-server-release.py" "$TOOLS/verify-server-release.py"
 install -o root -g root -m 0644 "$SCRIPT_DIR/safe-extract.py" "$TOOLS/safe-extract.py"
 install -o root -g root -m 0755 "$SCRIPT_DIR/server-deploy.sh" /usr/local/sbin/certificate-manager-ci-deploy

@@ -1,9 +1,10 @@
-export type Person = { id: number; name: string; phone?: string; email?: string; department?: string; notes?: string }
+export type Person = { id: number; name: string; phone?: string; identity_number?: string; email?: string; department?: string; notes?: string }
 export type Certificate = { id: number; name: string; issuer?: string; description?: string }
 export type RecordAttachment = { id: number; kind: 'pdf' | 'image'; filename: string; content_type: string; size_bytes: number; created_at: string }
 export type RecordItem = {
   id: number; person_id: number; certificate_id: number; certificate_no?: string
-  issue_date?: string; expiry_date?: string; continuing_education_date?: string; renewal_date?: string
+  validity_start_date?: string; validity_end_date?: string
+  expiry_date?: string; continuing_education_date?: string; renewal_date?: string
   certificate_url?: string; education_url?: string; renewal_url?: string; remind_days: number; active?: boolean; notes?: string
   attachments?: RecordAttachment[]
   person: Person; certificate: Certificate
@@ -25,17 +26,24 @@ const initial: State = {
     { id: 3, name: '中级会计师', issuer: '财政部' },
   ],
   records: [
-    { id: 1, person_id: 1, certificate_id: 1, certificate_no: '建造 0110234567', issue_date: future(-900), expiry_date: future(12), continuing_education_date: future(42), renewal_date: future(120), certificate_url: 'https://www.mohurd.gov.cn/', education_url: 'https://www.mohurd.gov.cn/', renewal_url: 'https://www.mohurd.gov.cn/', remind_days: 30, active: true, notes: '' },
-    { id: 2, person_id: 1, certificate_id: 2, certificate_no: '安全 2021-00882', issue_date: future(-620), expiry_date: future(86), continuing_education_date: future(5), renewal_date: future(160), certificate_url: 'https://www.mem.gov.cn/', education_url: 'https://www.mem.gov.cn/', renewal_url: 'https://www.mem.gov.cn/', remind_days: 30, active: true, notes: '' },
-    { id: 3, person_id: 2, certificate_id: 1, certificate_no: '建造 0110238871', issue_date: future(-1200), expiry_date: future(180), continuing_education_date: future(220), renewal_date: future(250), certificate_url: 'https://www.mohurd.gov.cn/', education_url: 'https://www.mohurd.gov.cn/', renewal_url: 'https://www.mohurd.gov.cn/', remind_days: 45, active: true, notes: '' },
-    { id: 4, person_id: 3, certificate_id: 3, certificate_no: '会计 2020-23918', issue_date: future(-1800), expiry_date: future(260), continuing_education_date: future(-4), renewal_date: future(300), certificate_url: 'https://www.mof.gov.cn/', education_url: 'https://www.mof.gov.cn/', renewal_url: 'https://www.mof.gov.cn/', remind_days: 30, active: true, notes: '' },
+    { id: 1, person_id: 1, certificate_id: 1, certificate_no: '建造 0110234567', validity_start_date: future(-900), validity_end_date: future(12), expiry_date: future(12), continuing_education_date: future(42), renewal_date: future(120), certificate_url: 'https://www.mohurd.gov.cn/', education_url: 'https://www.mohurd.gov.cn/', renewal_url: 'https://www.mohurd.gov.cn/', remind_days: 30, active: true, notes: '' },
+    { id: 2, person_id: 1, certificate_id: 2, certificate_no: '安全 2021-00882', validity_start_date: future(-620), validity_end_date: future(86), expiry_date: future(86), continuing_education_date: future(5), renewal_date: future(160), certificate_url: 'https://www.mem.gov.cn/', education_url: 'https://www.mem.gov.cn/', renewal_url: 'https://www.mem.gov.cn/', remind_days: 30, active: true, notes: '' },
+    { id: 3, person_id: 2, certificate_id: 1, certificate_no: '建造 0110238871', validity_start_date: future(-1200), validity_end_date: future(180), expiry_date: future(180), continuing_education_date: future(220), renewal_date: future(250), certificate_url: 'https://www.mohurd.gov.cn/', education_url: 'https://www.mohurd.gov.cn/', renewal_url: 'https://www.mohurd.gov.cn/', remind_days: 45, active: true, notes: '' },
+    { id: 4, person_id: 3, certificate_id: 3, certificate_no: '会计 2020-23918', validity_start_date: future(-1800), validity_end_date: future(260), expiry_date: future(260), continuing_education_date: future(-4), renewal_date: future(300), certificate_url: 'https://www.mof.gov.cn/', education_url: 'https://www.mof.gov.cn/', renewal_url: 'https://www.mof.gov.cn/', remind_days: 30, active: true, notes: '' },
   ],
 }
 
 function load(): State {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
-    return saved ? JSON.parse(saved) as State : structuredClone(initial)
+    if (!saved) return structuredClone(initial)
+    const state = JSON.parse(saved) as State
+    for (const record of state.records as Array<State['records'][number] & { issue_date?: string }>) {
+      record.validity_start_date ||= record.issue_date || ''
+      record.validity_end_date ||= record.expiry_date || ''
+      delete record.issue_date
+    }
+    return state
   } catch { return structuredClone(initial) }
 }
 let state = load()

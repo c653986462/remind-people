@@ -106,16 +106,20 @@ class ApiIntegrationTests(unittest.TestCase):
             self.assertEqual(client.get("/settings/email").json()["email"], "owner@example.test")
             self.assertEqual(client.post("/settings/email/test").status_code, 200)
 
-        person = client.post("/people", json={"name": "联调人员", "department": "测试部"})
+        person = client.post("/people", json={"name": "联调人员", "department": "测试部", "identity_number": "11010119900101123X"})
         self.assertEqual(person.status_code, 201)
+        self.assertEqual(person.json()["identity_number"], "11010119900101123X")
         person_id = person.json()["id"]
+        self.assertEqual(client.get("/people", params={"q": "11010119900101123X"}).json()[0]["id"], person_id)
+        self.assertEqual(client.post("/people", json={"name": "身份证可选人员"}).status_code, 201)
 
         certificate = client.post("/certificates", json={"name": "联调证书", "issuer": "测试机构"})
         self.assertEqual(certificate.status_code, 201)
         certificate_id = certificate.json()["id"]
         self.assertEqual(client.post("/certificates", json={"name": "联调证书"}).status_code, 409)
 
-        issue_date = (china_today() + timedelta(days=2)).isoformat()
+        validity_start = (china_today() + timedelta(days=1)).isoformat()
+        validity_end = (china_today() + timedelta(days=8)).isoformat()
         due_date = (china_today() + timedelta(days=3)).isoformat()
         renewal_date = (china_today() + timedelta(days=5)).isoformat()
         education_date = (china_today() + timedelta(days=4)).isoformat()
@@ -123,7 +127,8 @@ class ApiIntegrationTests(unittest.TestCase):
             "person_id": person_id,
             "certificate_id": certificate_id,
             "certificate_no": "TEST-001",
-            "issue_date": issue_date,
+            "validity_start_date": validity_start,
+            "validity_end_date": validity_end,
             "expiry_date": due_date,
             "renewal_date": renewal_date,
             "continuing_education_date": education_date,
@@ -140,6 +145,9 @@ class ApiIntegrationTests(unittest.TestCase):
         record_id = record.json()["id"]
         self.assertEqual(record.json()["person"]["name"], "联调人员")
         self.assertEqual(record.json()["certificate"]["name"], "联调证书")
+        self.assertEqual(record.json()["validity_start_date"], validity_start)
+        self.assertEqual(record.json()["validity_end_date"], validity_end)
+        self.assertNotIn("issue_date", record.json())
 
         listed = client.get("/records", params={"q": "TEST-001"})
         self.assertEqual(listed.status_code, 200)
@@ -149,7 +157,8 @@ class ApiIntegrationTests(unittest.TestCase):
         self.assertEqual({item["event_type"] for item in reminders}, {"expiry", "education", "renewal"})
         self.assertEqual({item["target_date"] for item in reminders}, {due_date, renewal_date, education_date})
         self.assertEqual({item["label"] for item in reminders}, {"延期", "更新", "继续教育"})
-        self.assertNotIn(issue_date, {item["target_date"] for item in reminders})
+        self.assertNotIn(validity_start, {item["target_date"] for item in reminders})
+        self.assertNotIn(validity_end, {item["target_date"] for item in reminders})
 
         update = client.put(
             f"/records/{record_id}",
@@ -162,7 +171,9 @@ class ApiIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(update.status_code, 200, update.text)
         self.assertEqual(update.json()["education_url"], "https://example.test/new-education-address")
-        self.assertEqual(client.put(f"/people/{person_id}", json={"name": "联调人员已编辑"}).status_code, 200)
+        person_update = client.put(f"/people/{person_id}", json={"name": "联调人员已编辑", "identity_number": "110101199001011230"})
+        self.assertEqual(person_update.status_code, 200)
+        self.assertEqual(person_update.json()["identity_number"], "110101199001011230")
 
         with patch("app.services.send_email", new_callable=AsyncMock) as send_reminder:
             first_check = client.post("/reminders/check")

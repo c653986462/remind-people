@@ -6,13 +6,14 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      build_desktop:
+        description: Also build and publish a new Windows installer
+        type: boolean
+        default: false
 
 permissions:
   contents: read
-
-concurrency:
-  group: full-release-${{ github.ref }}
-  cancel-in-progress: false
 
 jobs:
   test:
@@ -43,17 +44,20 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - run: python deploy/test_verify_full_release.py
       - run: python deploy/ci/test_ci_deploy.py
+      - run: python deploy/ci/test_publication_guards.py
       - name: Check deployment shell syntax
         if: runner.os == 'Linux'
         run: find deploy -name '*.sh' -print0 | xargs -0 -n1 bash -n
+      - name: Test transfer retries
+        if: runner.os == 'Linux'
+        run: bash deploy/ci/test-transfer.sh
 
-  build:
-    name: Build web and Windows installer
+  build_web:
+    name: Build backend, web and download site
     needs: test
     runs-on: windows-2025
-    timeout-minutes: 40
+    timeout-minutes: 25
     outputs:
-      version: ${{ steps.version.outputs.version }}
       desktop_changed: ${{ steps.desktop_changes.outputs.changed }}
     defaults:
       run:
@@ -74,59 +78,25 @@ jobs:
           node-version: '24'
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Test desktop change detection and preferences
+        run: node --test deploy/ci/test-desktop-changes.cjs deploy/ci/test-desktop-config.cjs deploy/ci/test-ci-version.cjs
       - name: Decide whether the Electron shell changed
         id: desktop_changes
-        shell: pwsh
         env:
-          DEPLOY_SERVER_ONLY: ${{ vars.DEPLOY_SERVER_ONLY }}
-        run: |
-          $event = Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
-          $base = if ($env:GITHUB_EVENT_NAME -eq 'push') { $event.before } elseif ($env:GITHUB_EVENT_NAME -eq 'pull_request') { $event.pull_request.base.sha } else { '' }
-          $changed = $env:GITHUB_EVENT_NAME -eq 'workflow_dispatch' -or $env:DEPLOY_SERVER_ONLY -ne 'true' -or -not $base -or $base -match '^0+$'
-          if (-not $changed) {
-            $files = git diff --name-only $base $env:GITHUB_SHA
-            if ($LASTEXITCODE -ne 0) { throw 'Cannot compare changed files to the event base.' }
-            $changed = [bool]($files | Where-Object { $_ -match '^frontend/electron/' -or $_ -in @('frontend/electron-builder.cjs', 'frontend/package.json', 'frontend/pnpm-lock.yaml') })
-          }
-          "changed=$($changed.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
-          Write-Output "Electron shell changed: $changed"
+          DEPLOY_SERVER_ONLY: ${{ vars.DEPLOY_SERVER_ONLY || 'true' }}
+          FORCE_DESKTOP: ${{ inputs.build_desktop == true }}
+        run: node deploy/ci/desktop-changes.cjs
       - name: Install locked frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
-      - name: Assign an automatic release version
-        id: version
-        if: steps.desktop_changes.outputs.changed == 'true'
-        run: node deploy/ci-version.cjs
-      - name: Test automatic versioning
-        if: steps.desktop_changes.outputs.changed == 'true'
-        run: node --test deploy/ci/test-ci-version.cjs
       - name: Build web application
         working-directory: frontend
         run: pnpm run build
-      - name: Build Windows installer when Electron changes
-        if: steps.desktop_changes.outputs.changed == 'true'
-        working-directory: frontend
-        run: pnpm exec electron-builder --win nsis --config electron-builder.cjs --publish never
-      - name: Package backend and web update
-        if: steps.desktop_changes.outputs.changed != 'true'
+      - name: Package small backend and web update
         run: ./deploy/build-server-release.ps1 -PythonExecutable python
-      - name: Package full release including desktop
-        if: steps.desktop_changes.outputs.changed == 'true'
-        run: ./deploy/build-full-release.ps1 -SkipBuild -PythonExecutable python
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: steps.desktop_changes.outputs.changed == 'true'
         with:
-          name: release-${{ github.run_id }}
-          path: |
-            deploy/packages/certificate-manager-full-*.tar.gz
-            deploy/packages/certificate-manager-full-*.tar.gz.sha256
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: steps.desktop_changes.outputs.changed != 'true'
-        with:
-          name: release-${{ github.run_id }}
+          name: server-${{ github.run_id }}
           path: |
             deploy/packages/certificate-manager-server-${{ github.run_id }}.tar.gz
             deploy/packages/certificate-manager-server-${{ github.run_id }}.tar.gz.sha256
@@ -134,34 +104,31 @@ jobs:
           compression-level: 0
           retention-days: 14
 
-  deploy:
-    name: Deploy backend, web, website and desktop
-    needs: build
+  deploy_web:
+    name: Deploy web and backend (blue-green)
+    needs: build_web
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 30
     environment: production
-    permissions:
-      contents: read
-      deployments: write
     concurrency:
-      group: certificate-manager-production
+      group: certificate-manager-web-publication
       cancel-in-progress: false
     env:
+      DEPLOY_KIND: server
       DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
       DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
       DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
       DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
       DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
       PUBLIC_URL: ${{ vars.DEPLOY_PUBLIC_URL || 'https://124.221.168.72' }}
-      EXPECTED_VERSION: ${{ needs.build.outputs.version }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: release-${{ github.run_id }}
+          name: server-${{ github.run_id }}
           path: release-artifact
       - name: Ensure resumable transfer is available
         run: |
@@ -169,18 +136,118 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y rsync
           fi
-      - name: Upload and deploy using a restricted server account
+      - name: Upload small package and switch healthy standby
         run: bash deploy/ci/deploy-from-actions.sh
-      - name: Verify public website and release metadata
+      - name: Verify public web and exact deployed source
         run: |
           set -euo pipefail
-          [[ "$PUBLIC_URL" == https://* ]] || { echo 'Public URL must use HTTPS.'; exit 1; }
+          [[ "$PUBLIC_URL" == https://* ]] || exit 1
           curl --noproxy '*' --retry 3 --connect-timeout 10 --max-time 30 -fsS "$PUBLIC_URL/" -o /dev/null
+          curl --noproxy '*' --retry 3 --connect-timeout 10 --max-time 30 -fsS "$PUBLIC_URL/api/health" -o /dev/null
           curl --noproxy '*' --retry 3 --connect-timeout 10 --max-time 30 -fsS "$PUBLIC_URL/download/" -o /dev/null
-          if [[ "${{ needs.build.outputs.desktop_changed }}" == 'true' ]]; then
-            curl --noproxy '*' --retry 3 --connect-timeout 10 --max-time 30 -fsS "$PUBLIC_URL/desktop-updates/latest.yml" | grep -Fx "version: $EXPECTED_VERSION"
-            printf 'Published desktop version %s from commit %s\n' "$EXPECTED_VERSION" "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
-          else
-            curl --noproxy '*' --retry 3 --connect-timeout 10 --max-time 30 -fsS "$PUBLIC_URL/desktop-updates/latest.yml" -o /dev/null
-            printf 'Published web and backend update; desktop installer unchanged (commit %s).\n' "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          curl --noproxy '*' --retry 3 --connect-timeout 10 --max-time 30 -fsS "$PUBLIC_URL/deployment.json" -o deployed.json
+          python -c 'import json,os; d=json.load(open("deployed.json")); assert d["source_commit"]==os.environ["GITHUB_SHA"] and str(d["run_id"])==os.environ["GITHUB_RUN_ID"], "Public release does not match this run"'
+          printf 'Web/backend published from %s. Desktop transfer is independent.\n' "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+  build_desktop:
+    name: Build Windows installer when Electron changes
+    needs: build_web
+    if: needs.build_web.outputs.desktop_changed == 'true'
+    runs-on: windows-2025
+    timeout-minutes: 40
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: '10'
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: server-${{ github.run_id }}
+          path: server-artifact
+      - name: Reuse verified web build from the same run
+        run: |
+          $archive = "server-artifact/certificate-manager-server-$env:GITHUB_RUN_ID.tar.gz"
+          python deploy/ci/safe-extract.py $archive server-stage
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot extract verified web artifact.' }
+          python deploy/ci/verify-server-release.py server-stage
+          if ($LASTEXITCODE -ne 0) { throw 'Web artifact verification failed.' }
+          Copy-Item -LiteralPath server-stage/frontend/dist -Destination frontend/dist -Recurse
+      - name: Assign automatic desktop version
+        id: version
+        run: node deploy/ci-version.cjs
+      - name: Build Windows installer
+        working-directory: frontend
+        run: pnpm exec electron-builder --win nsis --config electron-builder.cjs --publish never
+      - name: Package desktop artifact with matching source metadata
+        run: ./deploy/build-full-release.ps1 -SkipBuild -PythonExecutable python
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: desktop-${{ github.run_id }}
+          path: |
+            deploy/packages/certificate-manager-full-*.tar.gz
+            deploy/packages/certificate-manager-full-*.tar.gz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  deploy_desktop:
+    name: Publish Windows installer (resumable, independent)
+    needs: [deploy_web, build_desktop]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    environment: production
+    concurrency:
+      group: certificate-manager-desktop-publication
+      cancel-in-progress: false
+    env:
+      DEPLOY_KIND: desktop
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      PUBLIC_URL: ${{ vars.DEPLOY_PUBLIC_URL || 'https://124.221.168.72' }}
+      EXPECTED_VERSION: ${{ needs.build_desktop.outputs.version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: desktop-${{ github.run_id }}
+          path: release-artifact
+      - name: Ensure resumable transfer is available
+        run: |
+          if ! command -v rsync >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y rsync
           fi
+      - name: Upload installer with three resumable attempts and publish metadata
+        run: bash deploy/ci/deploy-from-actions.sh
+      - name: Verify desktop version and installer download
+        run: |
+          set -euo pipefail
+          [[ "$PUBLIC_URL" == https://* ]] || exit 1
+          curl --noproxy '*' --retry 3 --connect-timeout 10 --max-time 30 -fsS "$PUBLIC_URL/desktop-updates/latest.yml" | grep -Fx "version: $EXPECTED_VERSION"
+          INSTALLER_PATH="$(python -c 'import os,urllib.parse; print(urllib.parse.quote("证事 Setup " + os.environ["EXPECTED_VERSION"] + ".exe"))')"
+          curl --noproxy '*' --retry 3 --connect-timeout 10 --max-time 30 -fsSI "$PUBLIC_URL/desktop-updates/$INSTALLER_PATH" -o /dev/null
+          printf 'Desktop %s published after the matching web run; no services restarted.\n' "$EXPECTED_VERSION" >> "$GITHUB_STEP_SUMMARY"

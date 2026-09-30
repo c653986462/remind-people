@@ -1,4 +1,4 @@
-param([switch]$SkipBuild, [string]$PythonExecutable = '')
+param([switch]$SkipBuild, [string]$PythonExecutable = '', [string]$DesktopOutputDirectory = 'release')
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $frontendRoot = Join-Path $projectRoot 'frontend'
@@ -19,7 +19,7 @@ $builderConfig = Get-Content (Join-Path $frontendRoot 'electron-builder.cjs') -R
 $productName = [regex]::Match($builderConfig, "productName:\s*'([^']+)'").Groups[1].Value
 if (-not $productName) { throw 'Cannot read desktop productName.' }
 $installerName = "$productName Setup $version.exe"
-$installerPath = Join-Path $frontendRoot "release/$installerName"
+$installerPath = Join-Path (Join-Path $frontendRoot $DesktopOutputDirectory) $installerName
 $blockmapPath = "$installerPath.blockmap"
 foreach ($required in @($installerPath, $blockmapPath, (Join-Path $frontendRoot 'dist/index.html'), (Join-Path $frontendRoot 'dist/download/index.html'))) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "Missing release artifact: $required" }
@@ -61,6 +61,8 @@ Get-ChildItem -LiteralPath $stagePath -File -Recurse | Sort-Object FullName | Fo
 }
 $manifest = [ordered]@{version=$version; installer=$installerName; created_at=$date; files=$hashes}
 if ($env:GITHUB_SHA) { $manifest['source_commit'] = $env:GITHUB_SHA }
+if ($env:GITHUB_RUN_ID) { $manifest['run_id'] = $env:GITHUB_RUN_ID }
+if ($env:GITHUB_RUN_NUMBER) { $manifest['run_number'] = $env:GITHUB_RUN_NUMBER }
 [IO.File]::WriteAllText((Join-Path $stagePath 'release.json'), ($manifest | ConvertTo-Json -Depth 5), [Text.UTF8Encoding]::new($false))
 & $PythonExecutable (Join-Path $PSScriptRoot 'verify-full-release.py') $stagePath
 if ($LASTEXITCODE -ne 0) { throw 'Full release verification failed.' }

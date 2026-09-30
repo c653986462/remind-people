@@ -1,5 +1,6 @@
 const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, screen, session, shell, Tray } = require('electron')
 const { autoUpdater } = require('electron-updater')
+const fs = require('node:fs')
 const path = require('node:path')
 const { SERVER_URL } = require('./runtime-config.cjs')
 

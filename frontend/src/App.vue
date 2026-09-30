@@ -4,10 +4,11 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import {
   ArrowLeft, ArrowRight, Bell, Calendar, Clock, Collection, Document, Lock, Message,
-  FolderOpened, House, Link, MoreFilled, Picture, Plus, Refresh, Search, Tickets, UploadFilled, User, UserFilled,
+  Download, FolderOpened, House, Link, MoreFilled, Picture, Plus, Refresh, Search, Tickets, UploadFilled, User, UserFilled,
 } from '@element-plus/icons-vue'
 import { mockApi, type Certificate, type Person, type RecordAttachment, type RecordItem, type Reminder } from './mock'
 import { type UploadUserFile } from 'element-plus'
+import { exportXlsx } from './export-xlsx'
 
 type TabKey = 'dashboard' | 'records' | 'people' | 'certificates'
 type DialogKind = 'person' | 'certificate' | 'record'
@@ -46,6 +47,7 @@ const records = ref<RecordItem[]>([])
 const reminders = ref<Reminder[]>([])
 const search = ref('')
 const errorMessage = ref('')
+const exportingRecords = ref(false)
 const dialogVisible = ref(false)
 const dialogKind = ref<DialogKind>('record')
 const editingId = ref<number | null>(null)
@@ -62,9 +64,18 @@ const recordAttachments = ref<RecordAttachment[]>([])
 const pendingPdfFiles = ref<UploadUserFile[]>([])
 const pendingImageFiles = ref<UploadUserFile[]>([])
 const removedAttachmentIds = ref(new Set<number>())
-const personForm = ref({ name: '', phone: '', email: '', department: '', notes: '' })
+const personForm = ref({ name: '', phone: '', identity_number: '', email: '', department: '', notes: '' })
 const certificateForm = ref({ name: '', issuer: '', description: '' })
-const recordForm = ref({ person_id: 0, certificate_id: 0, certificate_no: '', issue_date: '', expiry_date: '', continuing_education_date: '', renewal_date: '', certificate_url: '', education_url: '', renewal_url: '', remind_days: 30, active: true, notes: '' })
+const recordForm = ref({ person_id: 0, certificate_id: 0, certificate_no: '', validity_start_date: '', validity_end_date: '', expiry_date: '', continuing_education_date: '', renewal_date: '', certificate_url: '', education_url: '', renewal_url: '', remind_days: 30, active: true, notes: '' })
+const validityRange = computed<[string, string] | null>({
+  get: (): [string, string] | null => recordForm.value.validity_start_date || recordForm.value.validity_end_date
+    ? [recordForm.value.validity_start_date, recordForm.value.validity_end_date]
+    : null,
+  set: (range: [string, string] | null) => {
+    recordForm.value.validity_start_date = range?.[0] || ''
+    recordForm.value.validity_end_date = range?.[1] || ''
+  },
+})
 
 const personRules: FormRules = { name: [{ required: true, message: '请填写姓名', trigger: 'blur' }] }
 const certificateRules: FormRules = { name: [{ required: true, message: '请填写证书名称', trigger: 'blur' }] }
@@ -81,7 +92,7 @@ const upcoming = computed(() => reminders.value.filter(item => item.days_left <=
 const monthTitle = computed(() => new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long' }).format(calendarDate.value))
 const visiblePeople = computed(() => {
   const q = search.value.trim().toLowerCase()
-  return people.value.filter(item => !q || `${item.name} ${item.phone || ''} ${item.email || ''} ${item.department || ''}`.toLowerCase().includes(q))
+  return people.value.filter(item => !q || `${item.name} ${item.phone || ''} ${item.identity_number || ''} ${item.email || ''} ${item.department || ''}`.toLowerCase().includes(q))
 })
 const visibleCertificates = computed(() => {
   const q = search.value.trim().toLowerCase()
@@ -262,6 +273,34 @@ async function load() {
   } catch (error) { errorMessage.value = `数据加载失败：${(error as Error).message}` }
 }
 
+async function exportRecords() {
+  exportingRecords.value = true
+  try {
+    // Fetch with the current search term at click time so a pending debounce cannot export stale rows.
+    const exportRows = await request<RecordItem[]>(`/records?q=${encodeURIComponent(search.value.trim())}`)
+    const headers = [
+      '持证人', '身份证号', '所属部门', '手机号', '邮箱', '人员备注', '证书类型', '发证机构', '证书说明',
+      '证书编号', '证书有效期开始（不提醒）', '证书有效期截止（不提醒）', '更新日期', '延期日期', '继续教育日期', '更新网址', '延期网址',
+      '继续教育网址', '状态', '提前提醒天数', '持证记录备注',
+    ]
+    const rows = exportRows.map(item => [
+      item.person.name, item.person.identity_number, item.person.department, item.person.phone,
+      item.person.email, item.person.notes, item.certificate.name, item.certificate.issuer,
+      item.certificate.description, item.certificate_no, item.validity_start_date, item.validity_end_date,
+      item.renewal_date, item.expiry_date, item.continuing_education_date, item.renewal_url, item.certificate_url,
+      item.education_url, item.active === false ? '停用' : '有效', item.remind_days, item.notes,
+    ])
+    const date = chinaClock().date
+    const searchSuffix = search.value.trim().replace(/[\\/:*?"<>|]/g, '_').slice(0, 30)
+    exportXlsx(`持证记录_${searchSuffix || '全部'}_${date}.xlsx`, headers, rows)
+    ElMessage.success(`已导出 ${rows.length} 条持证记录`)
+  } catch (error) {
+    ElMessage.error(`导出失败：${(error as Error).message}`)
+  } finally {
+    exportingRecords.value = false
+  }
+}
+
 function notifyUpcoming() {
   if (window.desktop) {
     return
@@ -349,10 +388,10 @@ async function enableNotification() {
 function openCreate(kind: DialogKind) {
   editingId.value = null
   dialogKind.value = kind
-  if (kind === 'person') personForm.value = { name: '', phone: '', email: '', department: '', notes: '' }
+  if (kind === 'person') personForm.value = { name: '', phone: '', identity_number: '', email: '', department: '', notes: '' }
   if (kind === 'certificate') certificateForm.value = { name: '', issuer: '', description: '' }
   if (kind === 'record') {
-    recordForm.value = { person_id: people.value[0]?.id || 0, certificate_id: certificates.value[0]?.id || 0, certificate_no: '', issue_date: '', expiry_date: '', continuing_education_date: '', renewal_date: '', certificate_url: '', education_url: '', renewal_url: '', remind_days: 30, active: true, notes: '' }
+    recordForm.value = { person_id: people.value[0]?.id || 0, certificate_id: certificates.value[0]?.id || 0, certificate_no: '', validity_start_date: '', validity_end_date: '', expiry_date: '', continuing_education_date: '', renewal_date: '', certificate_url: '', education_url: '', renewal_url: '', remind_days: 30, active: true, notes: '' }
     resetRecordAttachmentDraft()
   }
   dialogVisible.value = true
@@ -363,7 +402,7 @@ function openEdit(kind: DialogKind, item: Person | Certificate | RecordItem) {
   dialogKind.value = kind
   if (kind === 'person') {
     const person = item as Person
-    personForm.value = { name: person.name, phone: person.phone || '', email: person.email || '', department: person.department || '', notes: person.notes || '' }
+    personForm.value = { name: person.name, phone: person.phone || '', identity_number: person.identity_number || '', email: person.email || '', department: person.department || '', notes: person.notes || '' }
   }
   if (kind === 'certificate') {
     const certificate = item as Certificate
@@ -371,7 +410,7 @@ function openEdit(kind: DialogKind, item: Person | Certificate | RecordItem) {
   }
   if (kind === 'record') {
     const record = item as RecordItem
-    recordForm.value = { person_id: record.person_id, certificate_id: record.certificate_id, certificate_no: record.certificate_no || '', issue_date: record.issue_date || '', expiry_date: record.expiry_date || '', continuing_education_date: record.continuing_education_date || '', renewal_date: record.renewal_date || '', certificate_url: record.certificate_url || '', education_url: record.education_url || '', renewal_url: record.renewal_url || '', remind_days: record.remind_days || 30, active: record.active !== false, notes: record.notes || '' }
+    recordForm.value = { person_id: record.person_id, certificate_id: record.certificate_id, certificate_no: record.certificate_no || '', validity_start_date: record.validity_start_date || '', validity_end_date: record.validity_end_date || '', expiry_date: record.expiry_date || '', continuing_education_date: record.continuing_education_date || '', renewal_date: record.renewal_date || '', certificate_url: record.certificate_url || '', education_url: record.education_url || '', renewal_url: record.renewal_url || '', remind_days: record.remind_days || 30, active: record.active !== false, notes: record.notes || '' }
     resetRecordAttachmentDraft(record.attachments || [])
   }
   dialogVisible.value = true
@@ -656,7 +695,7 @@ onBeforeUnmount(() => { window.clearInterval(reminderTimer); window.clearInterva
             <el-card shadow="never" class="section-card upcoming-card">
               <template #header>
                 <div class="section-header">
-                  <div><h2>近期需要处理</h2><p>按时间整理延期、更新和继续教育事项；发证日期仅作记录，不触发提醒</p></div>
+                  <div><h2>近期需要处理</h2><p>按时间整理延期、更新和继续教育事项；证书有效期仅作记录，不触发提醒</p></div>
                   <div class="section-actions">
                     <el-radio-group v-model="viewMode" size="small" class="view-switch">
                       <el-radio-button value="list"><el-icon><Tickets /></el-icon>列表</el-radio-button>
@@ -706,17 +745,18 @@ onBeforeUnmount(() => { window.clearInterval(reminderTimer); window.clearInterva
               <el-col :xs="24" :md="10"><el-card shadow="never" class="section-card quick-card"><template #header><div class="simple-card-heading"><h2>快速创建</h2><span>常用资料入口</span></div></template>
                 <div class="quick-actions"><el-button plain :icon="User" @click="openCreate('person')">新增人员</el-button><el-button plain :icon="Collection" @click="openCreate('certificate')">新增证书类型</el-button></div>
               </el-card></el-col>
-              <el-col :xs="24" :md="14"><el-card shadow="never" class="section-card tip-card"><div class="tip-symbol"><el-icon><FolderOpened /></el-icon></div><div><el-text type="primary" size="small">管理小贴士</el-text><h2>重要日期，早一点知道。</h2><p>为每条持证记录填写更新、延期和继续教育日期，系统会在总览中统一提醒；发证日期仅作记录。</p><el-button link type="primary" @click="selectTab('records')">查看全部持证记录 <el-icon><ArrowRight /></el-icon></el-button></div></el-card></el-col>
+              <el-col :xs="24" :md="14"><el-card shadow="never" class="section-card tip-card"><div class="tip-symbol"><el-icon><FolderOpened /></el-icon></div><div><el-text type="primary" size="small">管理小贴士</el-text><h2>重要日期，早一点知道。</h2><p>为每条持证记录填写更新、延期和继续教育日期，系统会在总览中统一提醒；证书有效期只记录、不提醒。</p><el-button link type="primary" @click="selectTab('records')">查看全部持证记录 <el-icon><ArrowRight /></el-icon></el-button></div></el-card></el-col>
             </el-row>
           </template>
 
           <template v-else-if="tab === 'records'">
             <div class="page-heading"><div><div class="eyebrow">CERTIFICATE PORTFOLIO</div><h1>持证记录</h1><p>人员、证书、三类日期与对应网址统一维护。</p></div><el-button type="primary" :icon="Plus" @click="openCreate('record')">新增持证记录</el-button></div>
             <el-card shadow="never" class="section-card data-card">
-              <div class="table-toolbar"><div><h2>全部记录 <el-tag effect="plain" round>{{ records.length }}</el-tag></h2><p>可按人员、证书名称或证书编号检索</p></div><el-input v-model="search" clearable :prefix-icon="Search" placeholder="搜索持证记录" class="toolbar-search" /></div>
+              <div class="table-toolbar"><div><h2>全部记录 <el-tag effect="plain" round>{{ records.length }}</el-tag></h2><p>可按人员、证书名称或证书编号检索</p></div><div class="toolbar-controls"><el-input v-model="search" clearable :prefix-icon="Search" placeholder="搜索持证记录" class="toolbar-search" /><el-button :icon="Download" :loading="exportingRecords" :disabled="records.length === 0" @click="exportRecords">导出 Excel</el-button></div></div>
               <el-table :data="records" row-key="id" class="data-table" table-layout="auto">
                 <el-table-column label="持证人" min-width="170"><template #default="{ row }"><div class="person-cell"><el-avatar :size="34" class="person-avatar">{{ row.person.name.slice(0, 1) }}</el-avatar><div><b>{{ row.person.name }}</b><small>{{ row.certificate_no || '未填写编号' }}</small></div></div></template></el-table-column>
                 <el-table-column label="证书类型" min-width="150"><template #default="{ row }"><el-text>{{ row.certificate.name }}</el-text></template></el-table-column>
+                <el-table-column label="证书有效期（不提醒）" min-width="190"><template #default="{ row }">{{ row.validity_start_date || row.validity_end_date ? `${row.validity_start_date || '—'} 至 ${row.validity_end_date || '—'}` : '—' }}</template></el-table-column>
                 <el-table-column prop="renewal_date" label="更新日期" min-width="120"><template #default="{ row }">{{ row.renewal_date || '—' }}</template></el-table-column>
                 <el-table-column prop="expiry_date" label="延期日期" min-width="120"><template #default="{ row }">{{ row.expiry_date || '—' }}</template></el-table-column>
                 <el-table-column prop="continuing_education_date" label="继续教育日期" min-width="140"><template #default="{ row }">{{ row.continuing_education_date || '—' }}</template></el-table-column>
@@ -769,6 +809,7 @@ onBeforeUnmount(() => { window.clearInterval(reminderTimer); window.clearInterva
         <el-form-item label="姓名" prop="name"><el-input v-model="personForm.name" placeholder="例如：林晓雯" maxlength="100" /></el-form-item>
         <el-form-item label="手机号" prop="phone"><el-input v-model="personForm.phone" placeholder="选填" /></el-form-item>
         <el-form-item label="所属部门" prop="department"><el-input v-model="personForm.department" placeholder="例如：工程部" /></el-form-item>
+        <el-form-item label="身份证号（选填）" prop="identity_number"><el-input v-model="personForm.identity_number" placeholder="请输入身份证号码" maxlength="18" show-word-limit /></el-form-item>
         <el-form-item label="邮箱" prop="email"><el-input v-model="personForm.email" type="email" placeholder="选填" /></el-form-item>
         <el-form-item label="备注" prop="notes" class="span-two"><el-input v-model="personForm.notes" type="textarea" :rows="3" placeholder="补充信息（选填）" /></el-form-item>
       </el-form>
@@ -782,10 +823,11 @@ onBeforeUnmount(() => { window.clearInterval(reminderTimer); window.clearInterva
         <el-form-item label="持证人员" prop="person_id"><el-select v-model="recordForm.person_id" filterable placeholder="选择人员"><el-option v-for="person in people" :key="person.id" :label="person.name" :value="person.id" /></el-select></el-form-item>
         <el-form-item label="证书类型" prop="certificate_id"><el-select v-model="recordForm.certificate_id" filterable placeholder="选择证书"><el-option v-for="certificate in certificates" :key="certificate.id" :label="certificate.name" :value="certificate.id" /></el-select></el-form-item>
         <el-form-item label="证书编号" prop="certificate_no" class="span-two"><el-input v-model="recordForm.certificate_no" placeholder="证书上的编号（选填）" /></el-form-item>
-        <div class="form-section span-two"><div><b>提醒日期</b><span>发证日期只记录，不提醒；系统按更新、延期和继续教育日期提醒</span></div></div>
-        <el-form-item label="发证日期（不提醒）"><el-date-picker v-model="recordForm.issue_date" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" /></el-form-item>
+        <div class="form-section span-two"><div><b>证书有效期</b><span>只记录有效起止时间，不触发提醒</span></div></div>
+        <el-form-item label="有效期时间段（不提醒）" class="span-two"><el-date-picker v-model="validityRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="截止日期" unlink-panels /></el-form-item>
+        <div class="form-section span-two"><div><b>提醒日期</b><span>系统按更新、延期和继续教育日期提醒</span></div></div>
         <el-form-item label="更新日期"><el-date-picker v-model="recordForm.renewal_date" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" /></el-form-item>
-        <el-form-item label="延期日期"><el-date-picker v-model="recordForm.expiry_date" type="date" value-format="YYYY-MM-DD" placeholder="选择延期/有效期截止日期" /></el-form-item>
+        <el-form-item label="延期日期"><el-date-picker v-model="recordForm.expiry_date" type="date" value-format="YYYY-MM-DD" placeholder="选择延期办理/提醒日期" /></el-form-item>
         <el-form-item label="继续教育日期"><el-date-picker v-model="recordForm.continuing_education_date" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" /></el-form-item>
         <div class="form-section span-two"><div><b>对应办理网址</b><span>分别填写更新、延期和继续教育入口</span></div></div>
         <el-form-item label="更新网址" class="span-two"><el-input v-model="recordForm.renewal_url" :prefix-icon="Link" placeholder="https://" /></el-form-item>
@@ -851,7 +893,7 @@ onBeforeUnmount(() => { window.clearInterval(reminderTimer); window.clearInterva
             <el-descriptions-item label="证书类型">{{ detailRecord.certificate.name }}</el-descriptions-item>
             <el-descriptions-item label="证书编号">{{ detailRecord.certificate_no || '—' }}</el-descriptions-item>
             <el-descriptions-item label="状态">{{ detailRecord.active === false ? '已停用' : '有效' }}</el-descriptions-item>
-            <el-descriptions-item label="发证日期">{{ detailRecord.issue_date || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="证书有效期（不提醒）">{{ detailRecord.validity_start_date || detailRecord.validity_end_date ? `${detailRecord.validity_start_date || '—'} 至 ${detailRecord.validity_end_date || '—'}` : '—' }}</el-descriptions-item>
             <el-descriptions-item label="更新日期">{{ detailRecord.renewal_date || '—' }}</el-descriptions-item>
             <el-descriptions-item label="延期日期">{{ detailRecord.expiry_date || '—' }}</el-descriptions-item>
             <el-descriptions-item label="继续教育日期">{{ detailRecord.continuing_education_date || '—' }}</el-descriptions-item>

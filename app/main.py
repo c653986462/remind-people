@@ -25,7 +25,7 @@ from .config import settings
 from .attachments import (CHUNK_SIZE, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS_PER_KIND,
                           attachment_root, attachment_storage_lock, remove_storage_file,
                           storage_path)
-from .database import Base, SessionLocal, engine, get_db
+from .database import Base, SessionLocal, engine, ensure_schema, get_db
 from .email_service import email_smtp_configured, send_email
 from .models import (Certificate, EmailReminderLog, Person, PersonCertificate, RecordAttachment,
                      ReminderLog, User, UserEmailBinding, UserSession)
@@ -66,16 +66,19 @@ async def scheduled_due_date_check():
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
+    ensure_schema(engine)
     with SessionLocal() as db:
         if not db.scalar(select(User.id).where(User.is_active.is_(True)).limit(1)):
             raise RuntimeError("No active administrator exists. Create one first with `python -m app.admin create-admin`.")
-    scheduler.add_job(scheduled_due_date_check, "cron", hour=settings.wechat_due_reminder_hour, minute=0, id="certificate-due-date-wechat", replace_existing=True)
-    scheduler.add_job(scheduled_check, "cron", hour=settings.check_hour, minute=0, id="certificate-check", replace_existing=True)
-    # Catch up a due-date notification if the service starts after its configured hour.
-    await scheduled_due_date_check()
-    scheduler.start()
+    if settings.scheduler_enabled:
+        scheduler.add_job(scheduled_due_date_check, "cron", hour=settings.wechat_due_reminder_hour, minute=0, id="certificate-due-date-wechat", replace_existing=True)
+        scheduler.add_job(scheduled_check, "cron", hour=settings.check_hour, minute=0, id="certificate-check", replace_existing=True)
+        # Catch up a due-date notification if the service starts after its configured hour.
+        await scheduled_due_date_check()
+        scheduler.start()
     yield
-    scheduler.shutdown(wait=False)
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
 
 
 app = FastAPI(
@@ -393,7 +396,7 @@ def unbind_email(auth: SessionAuth, db: DB):
 @protected.get("/people", response_model=list[PersonOut])
 def list_people(db: DB, q: str = ""):
     stmt = select(Person).order_by(Person.id.desc())
-    if q: stmt = stmt.where(or_(Person.name.contains(q), Person.department.contains(q), Person.phone.contains(q)))
+    if q: stmt = stmt.where(or_(Person.name.contains(q), Person.department.contains(q), Person.phone.contains(q), Person.identity_number.contains(q)))
     return db.scalars(stmt).all()
 
 

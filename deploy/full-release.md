@@ -23,7 +23,11 @@ powershell -ExecutionPolicy Bypass -File deploy/build-full-release.ps1
 scp "C:\github\remind-people\deploy\packages\certificate-manager-full-0.1.4.tar.gz" ubuntu@124.221.168.72:/tmp/
 ```
 
-## 当前 0.1.4：服务器安装
+## 服务器发布
+
+生产服务器优先使用 GitHub Actions 自动部署。已启用蓝绿机制时，不再手工执行包内旧版的原位更新脚本；root-owned CI 工具负责验证包、备份数据库、更新非活动槽位并切流。第一次启用蓝绿请先按 [CI/CD 接入说明](ci/README.md) 完成工具升级和 Nginx 初始化。
+
+历史手动安装命令仅适用于尚未启用蓝绿的旧服务器；会原位重启服务，可能造成短暂中断，不应再用于正式更新：
 
 ```bash
 echo 'EB58FBAF65B13943A5AA3E1FABAFD7F794DD358A6DBF88887D21710CE0934E86  /tmp/certificate-manager-full-0.1.4.tar.gz' | sha256sum -c - &&
@@ -32,11 +36,7 @@ tar -xzf /tmp/certificate-manager-full-0.1.4.tar.gz -C "$full_release_stage" &&
 sudo bash "$full_release_stage/deploy/setup-full-update.sh" "$full_release_stage"
 ```
 
-脚本先验证逐文件 SHA256 和安装器 SHA512、大小及版本；禁止桌面版本降级，同版本不同安装器也停止发布。
-保留旧版本 EXE、数据库和附件，复用在线 SQLite 备份及代码回滚机制。
-安装器先放到更新目录，后端健康检查成功后才原子替换 latest.yml，官网同步读取新版清单。
-后端启动失败会恢复旧代码；旧桌面更新清单在成功前保持不变。
-代码备份位置由脚本输出，旧版本清单保存在 `/opt/certificate-manager-full-release-backup-*`。
+发布脚本先验证逐文件 SHA256 和安装器 SHA512、大小及版本；禁止桌面版本降级，同版本不同安装器也停止发布。旧槽位在流量切换后保留以供快速回退，数据库和附件留在共享持久目录。
 
 ## 验证
 

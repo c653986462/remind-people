@@ -83,23 +83,25 @@ SMTP 配置项：`EMAIL_SMTP_HOST`、`EMAIL_SMTP_PORT`、`EMAIL_SMTP_USERNAME`�
 
 ## 部署提醒
 
-### 统一版本发布（默认流程）
+### 网页与桌面分离发布（默认流程）
 
-已提供 GitHub Actions CI/CD：推送 `main` 后自动测试、构建 Windows EXE 和完整发布包，
-配置一次部署密钥并启用 `DEPLOY_ENABLED=true` 后自动更新线上所有组件。
-版本号随 workflow run number 自动递增；PR 不部署，生产部署串行，更新清单最后发布。
+已提供 GitHub Actions CI/CD：推送 `main` 后自动测试并构建网页/后端小包，
+配置一次部署密钥、升级可信工具并启用 `DEPLOY_ENABLED=true` 后自动蓝绿更新线上。
+只有 Electron 外壳/依赖变动时，独立构建并上传 EXE，桌面版本随 workflow run number 自动递增。
+网页发布不等待桌面上传，桌面公告不重启服务；PR 不部署，更新清单在校验匹配网页版本后原子发布。
 首次服务器接入和 GitHub Secrets 设置见 [CI/CD 接入说明](deploy/ci/README.md)。
 未完成接入时，自动测试和构建照常运行，部署 job 跳过；以下手工打包作为备用流程。
 
-每次更新必须同时构建并发布后端、网页、下载官网和 Windows 桌面安装包，不能只发布某一端。
+普通网页和后端更新自动只发布小包，已安装的新桌面端直接展示最新线上网页。
+只有 Electron 外壳变更或 Run workflow 勾选桌面选项时才构建新 EXE。需要手动全量打包时，
 先提升 `frontend/package.json` 的版本号，再在项目根目录执行
 `powershell -ExecutionPolicy Bypass -File deploy/build-full-release.ps1`。
 脚本默认重新构建网页和 EXE，生成单一 `deploy/packages/certificate-manager-full-版本.tar.gz`；
 缺少任何组件会停止打包，不包含 `.env`、数据库或证书附件。
 `-SkipBuild` 仅用于复用已验证、与源码一致的安装器，不用于常规新版本发布。
 
-服务器校验、解压后，运行包内 `deploy/setup-full-update.sh`。安装器和校验文件先准备，
-后端备份、重启并健康检查成功后，才发布最新桌面版本清单；官网同步读取该清单。
+首次使用需先按 CI/CD 说明安装蓝绿工具并做一次 Nginx 平滑迁移。此后每次发布会先更新非活动 Web/API 槽位并健康检查，再让 Nginx graceful reload 到新槽位；旧槽位保留作回退。唯一的提醒调度进程单独重启，不承接网页流量。安装器和校验文件先准备，
+蓝绿切换及健康检查成功后才发布最新桌面版本清单；官网同步读取该清单。
 服务器原有 SMTP 配置和业务数据保留。客户端用户需要接受/安装更新，发布并不等于所有电脑已升级。
 具体操作见 [完整发布说明](deploy/full-release.md)。
 
@@ -114,7 +116,7 @@ SHA-256 校验，存放在 root 私有的 `/var/backups/certificate-manager`；�
 
 ### 公网服务
 
-公网部署使用 Nginx 终止 HTTPS，Uvicorn 仅绑定 `127.0.0.1:8000`；防火墙只开放 80/443。服务以单 worker 运行，并启用 systemd 文件系统隔离。首次建库前先把数据目录设为仅服务账户可访问，并以该服务账户创建管理员，避免 SQLite 数据库以宽松权限创建：
+公网部署使用 Nginx 终止 HTTPS，Uvicorn 仅绑定回环地址；蓝绿启用后两个 Web/API 槽位分别监听 `127.0.0.1:8001` 和 `:8002`，单独的提醒调度服务监听 `:8000`。防火墙仍只开放 80/443。服务以单 worker 运行，并启用 systemd 文件系统隔离。首次建库前先把数据目录设为仅服务账户可访问，并以该服务账户创建管理员，避免 SQLite 数据库以宽松权限创建：
 
 ```bash
 sudo install -d -o www-data -g www-data -m 0700 /opt/certificate-manager/data

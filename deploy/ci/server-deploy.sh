@@ -2,9 +2,11 @@
 # Installed root-owned at /usr/local/sbin/certificate-manager-ci-deploy.
 set -Eeuo pipefail
 umask 077
-[[ $EUID -eq 0 && $# -eq 2 ]] || { echo 'Expected an archive and its SHA256; run with sudo.' >&2; exit 1; }
+[[ $EUID -eq 0 && ( $# -eq 2 || $# -eq 3 ) ]] || { echo 'Expected an archive, SHA256 and optional desktop mode; run with sudo.' >&2; exit 1; }
 readonly ARCHIVE="$1"
 readonly DIGEST="$2"
+readonly MODE="${3:-release}"
+[[ "$MODE" == release || "$MODE" == desktop ]]
 readonly INCOMING=/var/lib/certificate-manager-ci/incoming
 readonly WORK_DIR=/var/lib/certificate-manager-ci/work
 readonly TOOLS=/usr/local/lib/certificate-manager-ci
@@ -29,6 +31,14 @@ if [[ -f "$STAGE/release/server-release.json" && ! -e "$STAGE/release/release.js
 else
     "$APP_DIR/.venv/bin/python" -I "$TOOLS/verify-full-release.py" "$STAGE/release"
     readonly RELEASE_KIND=full
+fi
+if [[ "$MODE" == desktop ]]; then
+    [[ "$RELEASE_KIND" == full ]] || { echo 'Desktop publication requires a verified full artifact.' >&2; exit 1; }
+    logger -t certificate-manager-ci "Starting desktop-only publication: $(basename "$ARCHIVE")"
+    bash "$TOOLS/publish-desktop.sh" "$STAGE/release"
+    logger -t certificate-manager-ci "Desktop publication completed: $(basename "$ARCHIVE")"
+    rm -f -- "$ARCHIVE"
+    exit 0
 fi
 
 # Never install arbitrary uploaded build hooks as root. Missing/upgraded dependencies need admin preparation.
@@ -55,7 +65,7 @@ PY
 # Only preinstalled root-owned tools execute as root; uploaded deploy scripts are never executed.
 logger -t certificate-manager-ci "Starting deployment: $(basename "$ARCHIVE")"
 if [[ "$RELEASE_KIND" == server ]]; then
-    bash "$TOOLS/setup-email-reminders-update.sh" "$STAGE/release"
+    bash "$TOOLS/blue-green-deploy.sh" "$STAGE/release" server
 else
     CM_TRUSTED_DEPLOY_TOOLS="$TOOLS" bash "$TOOLS/setup-full-update.sh" "$STAGE/release"
 fi

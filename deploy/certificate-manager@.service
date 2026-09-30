@@ -1,5 +1,5 @@
 [Unit]
-Description=Certificate Manager API
+Description=Certificate Manager %i web/API slot
 After=network.target
 
 [Service]
@@ -8,8 +8,9 @@ User=www-data
 Group=www-data
 WorkingDirectory=/opt/certificate-manager
 EnvironmentFile=/opt/certificate-manager/.env
-Environment=PYTHONPATH=/opt/certificate-manager/current
-ExecStart=/opt/certificate-manager/.venv/bin/uvicorn app.main:app --app-dir /opt/certificate-manager/current --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
+EnvironmentFile=/etc/certificate-manager/slot-%i.conf
+Environment=PYTHONPATH=/opt/certificate-manager/slots/%i
+ExecStart=/opt/certificate-manager/.venv/bin/uvicorn app.main:app --app-dir /opt/certificate-manager/slots/%i --host 127.0.0.1 --port $PORT --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=always
 RestartSec=5
 UMask=0077
@@ -23,4 +24,3 @@ ProtectControlGroups=true
 
 [Install]
 WantedBy=multi-user.target
-
