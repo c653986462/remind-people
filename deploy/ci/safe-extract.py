@@ -3,7 +3,7 @@ from pathlib import Path, PurePosixPath
 import tarfile
 import sys
 
-ALLOWED_ROOTS = {'app', 'frontend', 'deploy', 'desktop-updates', 'release.json', 'requirements.txt'}
+ALLOWED_ROOTS = {'app', 'frontend', 'deploy', 'desktop-updates', 'release.json', 'server-release.json', 'requirements.txt'}
 
 
 def safe_extract(archive: Path, destination: Path):

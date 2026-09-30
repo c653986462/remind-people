@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 077
-for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS EXPECTED_VERSION GITHUB_RUN_ID GITHUB_RUN_ATTEMPT; do
+for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS GITHUB_RUN_ID GITHUB_RUN_ATTEMPT; do
     [[ -n "${!name:-}" ]] || { printf 'Missing GitHub Actions setting: %s\n' "$name" >&2; exit 1; }
 done
 [[ "$DEPLOY_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ && "$DEPLOY_USER" == certmgr-deploy ]]
 readonly SSH_PORT="${DEPLOY_PORT:-22}"
 [[ "$SSH_PORT" =~ ^[0-9]+$ && "$SSH_PORT" -ge 1 && "$SSH_PORT" -le 65535 ]]
-[[ "$EXPECTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]]
-readonly ARCHIVE="certificate-manager-full-$EXPECTED_VERSION.tar.gz"
+[[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]]
 cd release-artifact
+archives=(certificate-manager-full-*.tar.gz certificate-manager-server-*.tar.gz)
+present=()
+for candidate in "${archives[@]}"; do [[ -f "$candidate" ]] && present+=("$candidate"); done
+[[ ${#present[@]} -eq 1 ]] || { echo 'Expected exactly one full or server release archive.' >&2; exit 1; }
+readonly ARCHIVE="${present[0]}"
 sha256sum -c "$ARCHIVE.sha256"
 readonly DIGEST="$(sha256sum "$ARCHIVE" | cut -d ' ' -f 1)"
 # Keep the same remote path when rerunning a failed job so rsync can resume a partial EXE upload.

@@ -23,7 +23,13 @@ trap cleanup EXIT
 cp -- "$ARCHIVE" "$STAGE/archive.tar.gz"
 printf '%s  %s\n' "$DIGEST" "$STAGE/archive.tar.gz" | sha256sum -c -
 "$APP_DIR/.venv/bin/python" -I "$TOOLS/safe-extract.py" "$STAGE/archive.tar.gz" "$STAGE/release"
-"$APP_DIR/.venv/bin/python" -I "$TOOLS/verify-full-release.py" "$STAGE/release"
+if [[ -f "$STAGE/release/server-release.json" && ! -e "$STAGE/release/release.json" ]]; then
+    "$APP_DIR/.venv/bin/python" -I "$TOOLS/verify-server-release.py" "$STAGE/release"
+    readonly RELEASE_KIND=server
+else
+    "$APP_DIR/.venv/bin/python" -I "$TOOLS/verify-full-release.py" "$STAGE/release"
+    readonly RELEASE_KIND=full
+fi
 
 # Never install arbitrary uploaded build hooks as root. Missing/upgraded dependencies need admin preparation.
 "$APP_DIR/.venv/bin/python" -I - "$STAGE/release/requirements.txt" <<'PY'
@@ -48,6 +54,10 @@ for line in Path(sys.argv[1]).read_text().splitlines():
 PY
 # Only preinstalled root-owned tools execute as root; uploaded deploy scripts are never executed.
 logger -t certificate-manager-ci "Starting deployment: $(basename "$ARCHIVE")"
-CM_TRUSTED_DEPLOY_TOOLS="$TOOLS" bash "$TOOLS/setup-full-update.sh" "$STAGE/release"
+if [[ "$RELEASE_KIND" == server ]]; then
+    bash "$TOOLS/setup-email-reminders-update.sh" "$STAGE/release"
+else
+    CM_TRUSTED_DEPLOY_TOOLS="$TOOLS" bash "$TOOLS/setup-full-update.sh" "$STAGE/release"
+fi
 logger -t certificate-manager-ci "Deployment completed: $(basename "$ARCHIVE")"
 rm -f -- "$ARCHIVE"

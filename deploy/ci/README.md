@@ -1,6 +1,6 @@
 # GitHub Actions 自动构建和部署
 
-默认流程：推送 `main` → Ubuntu/Windows 后端测试 → Windows 构建网页和 EXE → 完整包校验 → SSH 上传 → 数据库及代码备份 → 重启并健康检查 → 发布桌面更新清单。
+启用分离部署后：推送 `main` → 后端测试 → 构建网页 → 小型后端/网页更新包 → SSH 上传 → 数据库及代码备份 → 重启并健康检查。Electron 外壳变化时会额外构建并发布 EXE；普通网页更新不会更新桌面版本。
 Pull Request 只测试和构建，不读取部署密钥、不更新生产。
 同一生产环境串行部署，发布清单最后写入。用户电脑自动下载新版本，但仍需确认重启/安装。
 
@@ -58,6 +58,7 @@ sudo bash "$ci_setup_stage/deploy/ci/setup-server.sh" /tmp/github-actions.pub
 | --- | --- |
 | `DEPLOY_ENABLED` | `true`，设置此项才允许自动更新线上 |
 | `DEPLOY_PUBLIC_URL` | `https://124.221.168.72`，可不设置，默认此地址 |
+| `DEPLOY_SERVER_ONLY` | `true`，仅在服务器部署工具更新完成后设置；设置后普通网页/后端提交只部署服务器，不构建 EXE |
 
 `DEPLOY_ENABLED` 必须是 Repository variable，不能只放在环境变量或 Secrets 中。
 部署 job 使用 `production` 环境；若给该环境设置了人工审核，发布会等待审核。想完全自动则不要设置 required reviewers。
@@ -66,7 +67,7 @@ sudo bash "$ci_setup_stage/deploy/ci/setup-server.sh" /tmp/github-actions.pub
 ## 3. 首次触发及以后使用
 
 配置完成后，打开仓库 Actions → Test, build and deploy all components → Run workflow，选择 main。
-日后修改代码并推送 main 即自动更新所有端，无需本地打包或 scp EXE。
+第一次推送包含桌面壳切换，会构建一个新版 EXE，安装后客户端即加载服务器上的网页。随后先按下文完成服务器部署工具升级，再将 `DEPLOY_SERVER_ONLY` 设为 `true`。之后改网页或后端并推送 `main` 会只部署服务器；修改 `frontend/electron/`、Electron 配置、桌面依赖时会重打包 EXE。
 
 ```powershell
 git add .
@@ -74,7 +75,7 @@ git commit -m "描述这次修改"
 git push origin main
 ```
 
-桌面版本自动使用 `frontend/package.json` 中的基础版本，加上本工作流的 run number。
+桌面版本自动使用 `frontend/package.json` 中的基础版本，加上本工作流的 run number；仅构建桌面 EXE 时递增发布版本。
 例如基础版本 `0.1.4`，run #1 → `0.1.5`，run #2 → `0.1.6`；PR、失败运行也会占用编号，版本允许跳号。
 不自动提交版本号回 Git，以免再次触发流水线。本地 package.json 是基础版本，线上实际版本看 latest.yml/release.json。
 不要降低基础版本，不要重建同一个已发布版本覆盖安装器。已有版本部署失败时优先使用 Re-run failed jobs 复用原构建包；若要全部重建，使用 Run workflow 取得新编号。
@@ -87,6 +88,10 @@ git push origin main
 - 全部产物通过 GitHub Actions Artifact 保存 14 天，历史安装器保留在服务器。构建消耗 Actions 配额，以 GitHub 账号实际额度为准。
 - Windows 安装包约 120 MB，GitHub 托管 Runner 到国内服务器的上传可能很慢。部署使用 rsync 断点续传，最长等待 90 分钟；失败后在 Actions 中选 Re-run failed jobs，可续传同一包。不要每次都重新触发全新工作流，否则会生成不同版本的安装包。
 - 当前 EXE 未配置代码签名证书，Windows 仍可能提示未知发布者。设置 CI/CD 不会自动获得代码签名。
+
+## 启用服务器专用更新
+
+包含 Electron 远程网页加载的首次全量更新完成后，在本地 PowerShell 运行 `deploy/ci/build-tools-update.ps1`，将生成的工具更新包和 `.sha256` 通过 SCP 上传到服务器 `/tmp`。在服务器校验哈希并执行包内的 `deploy/ci/update-server-tools.sh` 后，CI 部署入口会同时支持完整桌面发布和服务器专用发布。之后才设置 `DEPLOY_SERVER_ONLY=true`。部署工具更新只需做一次；该操作不改 `.env`、数据库、邮件密码或证书附件。
 
 查看日志：仓库 Actions 页面；服务器 `journalctl -t certificate-manager-ci --no-pager` 和 `journalctl -u certificate-manager --no-pager`。
 流水线设置依据 [GitHub Actions 工作流规范](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)。

@@ -54,6 +54,7 @@ jobs:
     timeout-minutes: 40
     outputs:
       version: ${{ steps.version.outputs.version }}
+      desktop_changed: ${{ steps.desktop_changes.outputs.changed }}
     defaults:
       run:
         shell: pwsh
@@ -61,6 +62,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
@@ -72,22 +74,62 @@ jobs:
           node-version: '24'
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Decide whether the Electron shell changed
+        id: desktop_changes
+        shell: pwsh
+        env:
+          DEPLOY_SERVER_ONLY: ${{ vars.DEPLOY_SERVER_ONLY }}
+        run: |
+          $event = Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
+          $base = if ($env:GITHUB_EVENT_NAME -eq 'push') { $event.before } elseif ($env:GITHUB_EVENT_NAME -eq 'pull_request') { $event.pull_request.base.sha } else { '' }
+          $changed = $env:GITHUB_EVENT_NAME -eq 'workflow_dispatch' -or $env:DEPLOY_SERVER_ONLY -ne 'true' -or -not $base -or $base -match '^0+$'
+          if (-not $changed) {
+            $files = git diff --name-only $base $env:GITHUB_SHA
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot compare changed files to the event base.' }
+            $changed = [bool]($files | Where-Object { $_ -match '^frontend/electron/' -or $_ -in @('frontend/electron-builder.cjs', 'frontend/package.json', 'frontend/pnpm-lock.yaml') })
+          }
+          "changed=$($changed.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          Write-Output "Electron shell changed: $changed"
       - name: Install locked frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
       - name: Assign an automatic release version
         id: version
+        if: steps.desktop_changes.outputs.changed == 'true'
         run: node deploy/ci-version.cjs
       - name: Test automatic versioning
+        if: steps.desktop_changes.outputs.changed == 'true'
         run: node --test deploy/ci/test-ci-version.cjs
-      - name: Build every component into one verified package
-        run: ./deploy/build-full-release.ps1 -PythonExecutable python
+      - name: Build web application
+        working-directory: frontend
+        run: pnpm run build
+      - name: Build Windows installer when Electron changes
+        if: steps.desktop_changes.outputs.changed == 'true'
+        working-directory: frontend
+        run: pnpm exec electron-builder --win nsis --config electron-builder.cjs --publish never
+      - name: Package backend and web update
+        if: steps.desktop_changes.outputs.changed != 'true'
+        run: ./deploy/build-server-release.ps1 -PythonExecutable python
+      - name: Package full release including desktop
+        if: steps.desktop_changes.outputs.changed == 'true'
+        run: ./deploy/build-full-release.ps1 -SkipBuild -PythonExecutable python
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.desktop_changes.outputs.changed == 'true'
         with:
-          name: full-release-${{ steps.version.outputs.version }}
+          name: release-${{ github.run_id }}
           path: |
             deploy/packages/certificate-manager-full-*.tar.gz
             deploy/packages/certificate-manager-full-*.tar.gz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.desktop_changes.outputs.changed != 'true'
+        with:
+          name: release-${{ github.run_id }}
+          path: |
+            deploy/packages/certificate-manager-server-${{ github.run_id }}.tar.gz
+            deploy/packages/certificate-manager-server-${{ github.run_id }}.tar.gz.sha256
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -129,10 +171,16 @@ jobs:
           fi
       - name: Upload and deploy using a restricted server account
         run: bash deploy/ci/deploy-from-actions.sh
-      - name: Verify the public website and desktop version
+      - name: Verify public website and release metadata
         run: |
           set -euo pipefail
           [[ "$PUBLIC_URL" == https://* ]] || { echo 'Public URL must use HTTPS.'; exit 1; }
           curl --noproxy '*' --retry 3 --connect-timeout 10 --max-time 30 -fsS "$PUBLIC_URL/" -o /dev/null
-          curl --noproxy '*' --retry 3 --connect-timeout 10 --max-time 30 -fsS "$PUBLIC_URL/desktop-updates/latest.yml" | grep -Fx "version: $EXPECTED_VERSION"
-          printf 'Published version %s from commit %s\n' "$EXPECTED_VERSION" "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          curl --noproxy '*' --retry 3 --connect-timeout 10 --max-time 30 -fsS "$PUBLIC_URL/download/" -o /dev/null
+          if [[ "${{ needs.build.outputs.desktop_changed }}" == 'true' ]]; then
+            curl --noproxy '*' --retry 3 --connect-timeout 10 --max-time 30 -fsS "$PUBLIC_URL/desktop-updates/latest.yml" | grep -Fx "version: $EXPECTED_VERSION"
+            printf 'Published desktop version %s from commit %s\n' "$EXPECTED_VERSION" "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          else
+            curl --noproxy '*' --retry 3 --connect-timeout 10 --max-time 30 -fsS "$PUBLIC_URL/desktop-updates/latest.yml" -o /dev/null
+            printf 'Published web and backend update; desktop installer unchanged (commit %s).\n' "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          fi

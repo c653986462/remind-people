@@ -1,10 +1,6 @@
-const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, screen, shell, Tray } = require('electron')
+const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, screen, session, shell, Tray } = require('electron')
 const { autoUpdater } = require('electron-updater')
-const fs = require('node:fs')
-const http = require('node:http')
-const https = require('node:https')
 const path = require('node:path')
-const mime = require('./mime.cjs')
 const { SERVER_URL } = require('./runtime-config.cjs')
 
 const isDev = !app.isPackaged
@@ -12,12 +8,10 @@ const configFile = () => path.join(app.getPath('userData'), 'desktop-settings.js
 let config = { launchAtLogin: true }
 let mainWindow
 let tray
-let localServer
-let localServerPort
 let isQuitting = false
 let reminderPopup
 let reminderPopupAction
-const LOCAL_APP_PORT = 43127
+const trustedOrigin = isDev ? 'http://127.0.0.1:5173' : new URL(SERVER_URL).origin
 
 function readConfig() {
   try {
@@ -35,54 +29,10 @@ function sendUpdateStatus(payload) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('desktop:update-status', payload)
 }
 
-function routeRequest(req, res) {
-  if (req.headers.host !== `127.0.0.1:${LOCAL_APP_PORT}`) { res.writeHead(403).end(); return }
-  if (req.url.startsWith('/api/')) {
-    let target
-    // Nginx exposes backend routes under /api/, so preserve this prefix.
-    try { target = new URL(req.url, `${SERVER_URL}/`) }
-    catch { res.writeHead(400).end(); return }
-    const transport = target.protocol === 'https:' ? https : http
-    const headers = { ...req.headers, host: target.host, 'x-forwarded-proto': target.protocol.slice(0, -1) }
-    delete headers.connection
-    delete headers.origin
-    const proxyReq = transport.request(target, { method: req.method, headers }, proxyRes => {
-      res.writeHead(proxyRes.statusCode || 502, proxyRes.headers)
-      proxyRes.pipe(res)
-    })
-    proxyReq.on('error', error => {
-      if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' })
-      res.end(JSON.stringify({ detail: `连接服务端失败：${error.message}` }))
-    })
-    req.pipe(proxyReq)
-    return
-  }
-
-  const requestedPath = decodeURIComponent(new URL(req.url, 'http://localhost').pathname)
-  const distRoot = path.resolve(__dirname, '..', 'dist')
-  const candidate = path.resolve(distRoot, `.${requestedPath}`)
-  const insideDist = candidate === distRoot || candidate.startsWith(`${distRoot}${path.sep}`)
-  let file = insideDist && fs.existsSync(candidate) && fs.statSync(candidate).isFile() ? candidate : path.join(distRoot, 'index.html')
-  if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405).end(); return }
-  res.writeHead(200, {
-    'Content-Type': mime[path.extname(file).toLowerCase()] || 'application/octet-stream',
-    'Cache-Control': file.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable',
-    'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
-    'Referrer-Policy': 'no-referrer',
-    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
-  })
-  if (req.method === 'HEAD') res.end()
-  else fs.createReadStream(file).pipe(res)
-}
-
-async function startLocalServer() {
-  localServer = http.createServer(routeRequest)
-  await new Promise((resolve, reject) => {
-    localServer.once('error', reject)
-    localServer.listen(LOCAL_APP_PORT, '127.0.0.1', resolve)
-  })
-  localServerPort = LOCAL_APP_PORT
+function isTrustedMainWindow(event) {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return false
+  try { return new URL(event.senderFrame.url).origin === trustedOrigin }
+  catch { return false }
 }
 
 function createWindow() {
@@ -106,14 +56,22 @@ function createWindow() {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     try {
       const parsed = new URL(url)
-      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') void shell.openExternal(url)
+      if (parsed.protocol === 'https:') void shell.openExternal(url)
     } catch {}
     return { action: 'deny' }
+  })
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    try { if (new URL(url).origin !== trustedOrigin) event.preventDefault() }
+    catch { event.preventDefault() }
+  })
+  mainWindow.webContents.on('will-redirect', (event, url) => {
+    try { if (new URL(url).origin !== trustedOrigin) event.preventDefault() }
+    catch { event.preventDefault() }
   })
   mainWindow.on('close', event => {
     if (!isQuitting && tray) { event.preventDefault(); mainWindow.hide() }
   })
-  mainWindow.loadURL(isDev ? 'http://127.0.0.1:5173' : `http://127.0.0.1:${localServerPort}/`)
+  mainWindow.loadURL(isDev ? 'http://127.0.0.1:5173' : SERVER_URL)
 }
 
 function closeReminderPopup(action) {
@@ -218,21 +176,22 @@ else {
   app.whenReady().then(async () => {
     readConfig()
     if (!isDev) {
-      await startLocalServer()
       app.setLoginItemSettings({ openAtLogin: !!config.launchAtLogin, args: ['--hidden'] })
+      session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
     }
-    ipcMain.handle('desktop:get-api-url', () => isDev ? '/api' : `http://127.0.0.1:${localServerPort}/api`)
+    ipcMain.handle('desktop:get-api-url', event => isTrustedMainWindow(event) ? '/api' : '')
     ipcMain.handle('desktop:get-version', () => app.getVersion())
-    ipcMain.handle('desktop:check-updates', () => checkUpdates(true))
+    ipcMain.handle('desktop:check-updates', event => { if (isTrustedMainWindow(event)) return checkUpdates(true) })
     ipcMain.handle('desktop:show-reminder', (event, payload) => {
-      if (!mainWindow || event.sender !== mainWindow.webContents) return false
+      if (!isTrustedMainWindow(event)) return false
       return showReminderPopup(payload)
     })
     ipcMain.on('desktop:reminder-popup-action', (event, action) => {
       if (!reminderPopup || event.sender !== reminderPopup.webContents || !['later', 'dismiss'].includes(action)) return
       closeReminderPopup(action)
     })
-    ipcMain.on('desktop:notify', (_event, payload) => {
+    ipcMain.on('desktop:notify', (event, payload) => {
+      if (!isTrustedMainWindow(event)) return
       if (Notification.isSupported()) new Notification({ title: String(payload.title || '证事提醒'), body: String(payload.body || '') }).show()
     })
     createWindow()
@@ -260,6 +219,6 @@ else {
       setInterval(() => void checkUpdates(), 6 * 60 * 60 * 1000)
     }
   })
-  app.on('before-quit', () => { isQuitting = true; if (localServer) localServer.close() })
+  app.on('before-quit', () => { isQuitting = true })
   app.on('window-all-closed', event => { if (process.platform !== 'darwin' && !tray) app.quit() })
 }
