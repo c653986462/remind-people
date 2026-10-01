@@ -13,6 +13,7 @@ import { exportXlsx } from './export-xlsx'
 type TabKey = 'dashboard' | 'records' | 'people' | 'certificates'
 type DialogKind = 'person' | 'certificate' | 'record'
 type AuthUser = { id: number; username: string }
+type CertificateHolder = Person & { validityEndDates: string[] }
 // Live API is the default; set VITE_USE_MOCK=true only for offline previews.
 const mockMode = import.meta.env.DEV && import.meta.env.VITE_USE_MOCK === 'true'
 let api = (import.meta.env.VITE_API_URL || '/api').replace(/\/+$/, '')
@@ -58,6 +59,27 @@ const recordsByPerson = computed(() => {
 })
 const selectedPersonCertificates = computed(() => selectedPersonId.value === null
   ? [] : recordsByPerson.value.get(selectedPersonId.value) || [])
+const certificateHoldersVisible = ref(false)
+const selectedCertificateId = ref<number | null>(null)
+const selectedCertificate = computed(() => certificates.value.find(certificate => certificate.id === selectedCertificateId.value))
+const holdersByCertificate = computed(() => {
+  const grouped = new Map<number, Map<number, CertificateHolder>>()
+  for (const record of records.value) {
+    const holders = grouped.get(record.certificate_id) || new Map<number, CertificateHolder>()
+    const holder = holders.get(record.person_id) || { ...record.person, validityEndDates: [] as string[] }
+    const endDate = record.validity_end_date || ''
+    if (!holder.validityEndDates.includes(endDate)) holder.validityEndDates.push(endDate)
+    holders.set(record.person_id, holder)
+    grouped.set(record.certificate_id, holders)
+  }
+  const holders = new Map<number, CertificateHolder[]>()
+  for (const [certificateId, peopleById] of grouped) {
+    holders.set(certificateId, Array.from(peopleById.values()))
+  }
+  return holders
+})
+const selectedCertificateHolders = computed(() => selectedCertificateId.value === null
+  ? [] : holdersByCertificate.value.get(selectedCertificateId.value) || [])
 const reminders = ref<Reminder[]>([])
 const search = ref('')
 const errorMessage = ref('')
@@ -456,6 +478,11 @@ function openPersonCertificates(item: unknown) {
   personCertificatesVisible.value = true
 }
 
+function openCertificateHolders(item: unknown) {
+  selectedCertificateId.value = (item as Certificate).id
+  certificateHoldersVisible.value = true
+}
+
 function formatCertificateValidity(item: unknown) {
   const record = item as RecordItem
   if (!record.validity_start_date && !record.validity_end_date) return '未填写'
@@ -620,8 +647,10 @@ function openItemUrl(url?: string) {
 watch(currentUser, () => {
   personCertificatesVisible.value = false
   selectedPersonId.value = null
+  certificateHoldersVisible.value = false
+  selectedCertificateId.value = null
 })
-watch(tab, value => { if (value === 'records' || value === 'people') void load() })
+watch(tab, value => { if (value === 'records' || value === 'people' || value === 'certificates') void load() })
 onMounted(() => {
   void initializeAuth()
   if (window.desktop) {
@@ -820,7 +849,7 @@ onBeforeUnmount(() => { window.clearInterval(reminderTimer); window.clearInterva
                 <el-table-column label="证书名称" min-width="220"><template #default="{ row }"><div class="certificate-cell"><span class="certificate-symbol"><el-icon><Tickets /></el-icon></span><b>{{ row.name }}</b></div></template></el-table-column>
                 <el-table-column prop="issuer" label="发证机构" min-width="220"><template #default="{ row }">{{ row.issuer || '—' }}</template></el-table-column>
                 <el-table-column prop="description" label="说明" min-width="220"><template #default="{ row }">{{ row.description || '—' }}</template></el-table-column>
-                <el-table-column label="持证人数" width="120"><template #default="{ row }"><el-tag type="info" effect="plain">{{ records.filter(record => record.certificate_id === row.id).length }} 人</el-tag></template></el-table-column>
+                <el-table-column label="持证人数" width="120"><template #default="{ row }"><el-button link type="primary" :aria-label="`查看${row.name}的持证人员`" @click="openCertificateHolders(row)">{{ holdersByCertificate.get(row.id)?.length || 0 }} 人</el-button></template></el-table-column>
                 <el-table-column label="操作" width="118" fixed="right" align="right"><template #default="{ row }"><el-button link type="primary" @click="editCertificateRow(row)">编辑</el-button><el-button link type="danger" @click="remove(`/certificates/${row.id}`, '证书类型')">删除</el-button></template></el-table-column>
                 <template #empty><el-empty description="还没有证书类型" :image-size="64" /></template>
               </el-table>
@@ -839,6 +868,16 @@ onBeforeUnmount(() => { window.clearInterval(reminderTimer); window.clearInterva
         <template #empty><el-empty description="该人员暂无持证记录" :image-size="64" /></template>
       </el-table>
       <template #footer><el-button @click="personCertificatesVisible = false">关闭</el-button></template>
+    </el-dialog>
+
+    <el-dialog v-model="certificateHoldersVisible" :title="`${selectedCertificate?.name || '证书类型'}的持证人员`" width="min(540px, calc(100vw - 32px))" align-center destroy-on-close @closed="selectedCertificateId = null">
+      <el-table :data="selectedCertificateHolders" row-key="id" max-height="480">
+        <el-table-column type="index" label="序号" width="70" />
+        <el-table-column prop="name" label="姓名" min-width="180" />
+        <el-table-column label="证书到期时间" min-width="180"><template #default="{ row }"><div v-for="endDate in row.validityEndDates" :key="endDate">{{ endDate || '未填写' }}</div></template></el-table-column>
+        <template #empty><el-empty description="该证书类型暂无持证人员" :image-size="64" /></template>
+      </el-table>
+      <template #footer><el-button @click="certificateHoldersVisible = false">关闭</el-button></template>
     </el-dialog>
 
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="min(660px, calc(100vw - 32px))" :close-on-click-modal="false" class="form-dialog" align-center destroy-on-close>
