@@ -44,6 +44,20 @@ const calendarDate = ref(new Date())
 const people = ref<Person[]>([])
 const certificates = ref<Certificate[]>([])
 const records = ref<RecordItem[]>([])
+const personCertificatesVisible = ref(false)
+const selectedPersonId = ref<number | null>(null)
+const selectedPerson = computed(() => people.value.find(person => person.id === selectedPersonId.value))
+const recordsByPerson = computed(() => {
+  const grouped = new Map<number, RecordItem[]>()
+  for (const record of records.value) {
+    const items = grouped.get(record.person_id) || []
+    items.push(record)
+    grouped.set(record.person_id, items)
+  }
+  return grouped
+})
+const selectedPersonCertificates = computed(() => selectedPersonId.value === null
+  ? [] : recordsByPerson.value.get(selectedPersonId.value) || [])
 const reminders = ref<Reminder[]>([])
 const search = ref('')
 const errorMessage = ref('')
@@ -97,6 +111,11 @@ const visiblePeople = computed(() => {
 const visibleCertificates = computed(() => {
   const q = search.value.trim().toLowerCase()
   return certificates.value.filter(item => !q || `${item.name} ${item.issuer || ''} ${item.description || ''}`.toLowerCase().includes(q))
+})
+const visibleRecords = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  return records.value.filter(item => !q || [item.person.name, item.certificate.name, item.certificate_no || '']
+    .some(value => value.toLowerCase().includes(q)))
 })
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -264,7 +283,7 @@ async function load() {
   try {
     ;[people.value, certificates.value, records.value, reminders.value] = await Promise.all([
       request<Person[]>('/people'), request<Certificate[]>('/certificates'),
-      request<RecordItem[]>(`/records?q=${encodeURIComponent(search.value)}`), request<Reminder[]>('/reminders/upcoming?days=365'),
+      request<RecordItem[]>('/records'), request<Reminder[]>('/reminders/upcoming?days=365'),
     ])
     if (!recordForm.value.person_id && people.value[0]) recordForm.value.person_id = people.value[0].id
     if (!recordForm.value.certificate_id && certificates.value[0]) recordForm.value.certificate_id = certificates.value[0].id
@@ -432,6 +451,17 @@ function openRecordDetail(item: unknown) {
   detailVisible.value = true
 }
 
+function openPersonCertificates(item: unknown) {
+  selectedPersonId.value = (item as Person).id
+  personCertificatesVisible.value = true
+}
+
+function formatCertificateValidity(item: unknown) {
+  const record = item as RecordItem
+  if (!record.validity_start_date && !record.validity_end_date) return '未填写'
+  return `${record.validity_start_date || '—'} 至 ${record.validity_end_date || '—'}`
+}
+
 function attachmentUrl(recordId: number, attachmentId: number) {
   return `${api}/records/${recordId}/attachments/${attachmentId}`
 }
@@ -587,13 +617,11 @@ function openItemUrl(url?: string) {
   } catch { ElMessage.warning('网址格式无效') }
 }
 
-let searchTimer = 0
-watch(search, () => {
-  if (tab.value !== 'records') return
-  window.clearTimeout(searchTimer)
-  searchTimer = window.setTimeout(() => void load(), 250)
+watch(currentUser, () => {
+  personCertificatesVisible.value = false
+  selectedPersonId.value = null
 })
-watch(tab, value => { if (value === 'records') void load() })
+watch(tab, value => { if (value === 'records' || value === 'people') void load() })
 onMounted(() => {
   void initializeAuth()
   if (window.desktop) {
@@ -752,8 +780,8 @@ onBeforeUnmount(() => { window.clearInterval(reminderTimer); window.clearInterva
           <template v-else-if="tab === 'records'">
             <div class="page-heading"><div><div class="eyebrow">CERTIFICATE PORTFOLIO</div><h1>持证记录</h1><p>人员、证书、三类日期与对应网址统一维护。</p></div><el-button type="primary" :icon="Plus" @click="openCreate('record')">新增持证记录</el-button></div>
             <el-card shadow="never" class="section-card data-card">
-              <div class="table-toolbar"><div><h2>全部记录 <el-tag effect="plain" round>{{ records.length }}</el-tag></h2><p>可按人员、证书名称或证书编号检索</p></div><div class="toolbar-controls"><el-input v-model="search" clearable :prefix-icon="Search" placeholder="搜索持证记录" class="toolbar-search" /><el-button :icon="Download" :loading="exportingRecords" :disabled="records.length === 0" @click="exportRecords">导出 Excel</el-button></div></div>
-              <el-table :data="records" row-key="id" class="data-table" table-layout="auto">
+              <div class="table-toolbar"><div><h2>全部记录 <el-tag effect="plain" round>{{ visibleRecords.length }}</el-tag></h2><p>可按人员、证书名称或证书编号检索</p></div><div class="toolbar-controls"><el-input v-model="search" clearable :prefix-icon="Search" placeholder="搜索持证记录" class="toolbar-search" /><el-button :icon="Download" :loading="exportingRecords" :disabled="visibleRecords.length === 0" @click="exportRecords">导出 Excel</el-button></div></div>
+              <el-table :data="visibleRecords" row-key="id" class="data-table" table-layout="auto">
                 <el-table-column label="持证人" min-width="170"><template #default="{ row }"><div class="person-cell"><el-avatar :size="34" class="person-avatar">{{ row.person.name.slice(0, 1) }}</el-avatar><div><b>{{ row.person.name }}</b><small>{{ row.certificate_no || '未填写编号' }}</small></div></div></template></el-table-column>
                 <el-table-column label="证书类型" min-width="150"><template #default="{ row }"><el-text>{{ row.certificate.name }}</el-text></template></el-table-column>
                 <el-table-column label="证书有效期（不提醒）" min-width="190"><template #default="{ row }">{{ row.validity_start_date || row.validity_end_date ? `${row.validity_start_date || '—'} 至 ${row.validity_end_date || '—'}` : '—' }}</template></el-table-column>
@@ -777,7 +805,7 @@ onBeforeUnmount(() => { window.clearInterval(reminderTimer); window.clearInterva
                 <el-table-column prop="department" label="部门" min-width="150"><template #default="{ row }">{{ row.department || '—' }}</template></el-table-column>
                 <el-table-column prop="phone" label="手机号" min-width="160"><template #default="{ row }">{{ row.phone || '—' }}</template></el-table-column>
                 <el-table-column prop="email" label="邮箱" min-width="200"><template #default="{ row }">{{ row.email || '—' }}</template></el-table-column>
-                <el-table-column label="持证数量" width="120"><template #default="{ row }"><el-tag type="info" effect="plain">{{ records.filter(record => record.person_id === row.id).length }} 项</el-tag></template></el-table-column>
+                <el-table-column label="持证数量" width="120"><template #default="{ row }"><el-button link type="primary" :aria-label="`查看${row.name}的持证证书`" @click="openPersonCertificates(row)">{{ recordsByPerson.get(row.id)?.length || 0 }} 项</el-button></template></el-table-column>
                 <el-table-column label="操作" width="118" fixed="right" align="right"><template #default="{ row }"><el-button link type="primary" @click="editPersonRow(row)">编辑</el-button><el-button link type="danger" @click="remove(`/people/${row.id}`, '人员档案')">删除</el-button></template></el-table-column>
                 <template #empty><el-empty description="还没有人员档案" :image-size="64" /></template>
               </el-table>
@@ -802,6 +830,16 @@ onBeforeUnmount(() => { window.clearInterval(reminderTimer); window.clearInterva
         </el-main>
       </el-container>
     </el-container>
+
+    <el-dialog v-model="personCertificatesVisible" :title="`${selectedPerson?.name || '人员'}的持证证书`" width="min(900px, calc(100vw - 32px))" align-center destroy-on-close @closed="selectedPersonId = null">
+      <el-table :data="selectedPersonCertificates" row-key="id" max-height="480" table-layout="auto">
+        <el-table-column prop="certificate.name" label="证书类型" min-width="180" />
+        <el-table-column label="证书编号" min-width="220"><template #default="{ row }">{{ row.certificate_no || '未填写' }}</template></el-table-column>
+        <el-table-column label="证书有效期" min-width="240"><template #default="{ row }">{{ formatCertificateValidity(row) }}</template></el-table-column>
+        <template #empty><el-empty description="该人员暂无持证记录" :image-size="64" /></template>
+      </el-table>
+      <template #footer><el-button @click="personCertificatesVisible = false">关闭</el-button></template>
+    </el-dialog>
 
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="min(660px, calc(100vw - 32px))" :close-on-click-modal="false" class="form-dialog" align-center destroy-on-close>
       <p class="dialog-description">{{ dialogKind === 'record' ? '完善证书关联、重要日期和办理入口。' : '信息仅用于证书管理和日期提醒。' }}</p>
