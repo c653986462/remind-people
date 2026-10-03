@@ -59,6 +59,11 @@ const recordsByPerson = computed(() => {
 })
 const selectedPersonCertificates = computed(() => selectedPersonId.value === null
   ? [] : recordsByPerson.value.get(selectedPersonId.value) || [])
+const personDetailVisible = ref(false)
+const detailPersonId = ref<number | null>(null)
+const detailPerson = computed(() => people.value.find(person => person.id === detailPersonId.value))
+const detailPersonCertificates = computed(() => detailPersonId.value === null
+  ? [] : recordsByPerson.value.get(detailPersonId.value) || [])
 const certificateHoldersVisible = ref(false)
 const selectedCertificateId = ref<number | null>(null)
 const selectedCertificate = computed(() => certificates.value.find(certificate => certificate.id === selectedCertificateId.value))
@@ -478,6 +483,11 @@ function openPersonCertificates(item: unknown) {
   personCertificatesVisible.value = true
 }
 
+function openPersonDetail(item: unknown) {
+  detailPersonId.value = (item as Person).id
+  personDetailVisible.value = true
+}
+
 function openCertificateHolders(item: unknown) {
   selectedCertificateId.value = (item as Certificate).id
   certificateHoldersVisible.value = true
@@ -647,6 +657,8 @@ function openItemUrl(url?: string) {
 watch(currentUser, () => {
   personCertificatesVisible.value = false
   selectedPersonId.value = null
+  personDetailVisible.value = false
+  detailPersonId.value = null
   certificateHoldersVisible.value = false
   selectedCertificateId.value = null
 })
@@ -831,11 +843,11 @@ onBeforeUnmount(() => { window.clearInterval(reminderTimer); window.clearInterva
               <div class="table-toolbar"><div><h2>人员列表 <el-tag effect="plain" round>{{ people.length }}</el-tag></h2><p>人员基本资料与持证数量</p></div><el-input v-model="search" clearable :prefix-icon="Search" placeholder="搜索人员" class="toolbar-search" /></div>
               <el-table :data="visiblePeople" row-key="id" class="data-table">
                 <el-table-column label="姓名" min-width="180"><template #default="{ row }"><div class="person-cell"><el-avatar :size="34" class="person-avatar">{{ row.name.slice(0,1) }}</el-avatar><b>{{ row.name }}</b></div></template></el-table-column>
-                <el-table-column prop="department" label="部门" min-width="150"><template #default="{ row }">{{ row.department || '—' }}</template></el-table-column>
+                <el-table-column prop="identity_number" label="身份证号" min-width="220"><template #default="{ row }">{{ row.identity_number || '—' }}</template></el-table-column>
                 <el-table-column prop="phone" label="手机号" min-width="160"><template #default="{ row }">{{ row.phone || '—' }}</template></el-table-column>
                 <el-table-column prop="email" label="邮箱" min-width="200"><template #default="{ row }">{{ row.email || '—' }}</template></el-table-column>
                 <el-table-column label="持证数量" width="120"><template #default="{ row }"><el-button link type="primary" :aria-label="`查看${row.name}的持证证书`" @click="openPersonCertificates(row)">{{ recordsByPerson.get(row.id)?.length || 0 }} 项</el-button></template></el-table-column>
-                <el-table-column label="操作" width="118" fixed="right" align="right"><template #default="{ row }"><el-button link type="primary" @click="editPersonRow(row)">编辑</el-button><el-button link type="danger" @click="remove(`/people/${row.id}`, '人员档案')">删除</el-button></template></el-table-column>
+                <el-table-column label="操作" width="180" fixed="right" align="right"><template #default="{ row }"><el-button link type="primary" :aria-label="`查看${row.name}的人员详情`" @click="openPersonDetail(row)">详情</el-button><el-button link type="primary" @click="editPersonRow(row)">编辑</el-button><el-button link type="danger" @click="remove(`/people/${row.id}`, '人员档案')">删除</el-button></template></el-table-column>
                 <template #empty><el-empty description="还没有人员档案" :image-size="64" /></template>
               </el-table>
             </el-card>
@@ -868,6 +880,29 @@ onBeforeUnmount(() => { window.clearInterval(reminderTimer); window.clearInterva
         <template #empty><el-empty description="该人员暂无持证记录" :image-size="64" /></template>
       </el-table>
       <template #footer><el-button @click="personCertificatesVisible = false">关闭</el-button></template>
+    </el-dialog>
+
+    <el-dialog v-model="personDetailVisible" :title="`${detailPerson?.name || '人员'}的档案详情`" width="min(900px, calc(100vw - 32px))" align-center destroy-on-close @closed="detailPersonId = null">
+      <div v-if="detailPerson" class="detail-content person-detail-content">
+        <el-descriptions :column="1" border>
+          <el-descriptions-item label="姓名">{{ detailPerson.name }}</el-descriptions-item>
+          <el-descriptions-item label="身份证号">{{ detailPerson.identity_number || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="手机号">{{ detailPerson.phone || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="邮箱">{{ detailPerson.email || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="部门">{{ detailPerson.department || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="备注"><span class="person-detail-notes">{{ detailPerson.notes || '—' }}</span></el-descriptions-item>
+        </el-descriptions>
+        <div class="detail-section-heading"><div><h3>持证证书</h3><span>{{ detailPersonCertificates.length }} 项</span></div></div>
+        <el-table :data="detailPersonCertificates" row-key="id" max-height="360" table-layout="auto">
+          <el-table-column prop="certificate.name" label="证书类型" min-width="180" />
+          <el-table-column label="证书编号" min-width="220"><template #default="{ row }">{{ row.certificate_no || '未填写' }}</template></el-table-column>
+          <el-table-column label="证书有效期" min-width="240"><template #default="{ row }">{{ formatCertificateValidity(row) }}</template></el-table-column>
+          <el-table-column label="操作" width="100" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="openRecordDetail(row)">查看证书</el-button></template></el-table-column>
+          <template #empty><el-empty description="该人员暂无持证记录" :image-size="64" /></template>
+        </el-table>
+      </div>
+      <el-empty v-else description="该人员档案已不存在" :image-size="64" />
+      <template #footer><el-button @click="personDetailVisible = false">关闭</el-button></template>
     </el-dialog>
 
     <el-dialog v-model="certificateHoldersVisible" :title="`${selectedCertificate?.name || '证书类型'}的持证人员`" width="min(540px, calc(100vw - 32px))" align-center destroy-on-close @closed="selectedCertificateId = null">
