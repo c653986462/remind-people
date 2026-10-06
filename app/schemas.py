@@ -1,5 +1,4 @@
 from datetime import date, datetime
-from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -33,17 +32,6 @@ class WebsiteDetails(BaseModel):
     renewal_account: str | None = Field(default=None, max_length=200)
     renewal_password: str | None = Field(default=None, max_length=1024, repr=False)
     renewal_notes: str | None = Field(default=None, max_length=5000)
-
-    @field_validator("certificate_url", "education_url", "renewal_url")
-    @classmethod
-    def validate_process_url(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        parsed = urlsplit(value.strip())
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise ValueError("网址必须是完整的 http 或 https 链接")
-        return value.strip()
-
 
 class CertificateBase(WebsiteDetails):
     name: str = Field(min_length=1, max_length=150)

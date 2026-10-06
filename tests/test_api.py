@@ -138,8 +138,6 @@ class ApiIntegrationTests(unittest.TestCase):
             "remind_days": 30,
             "active": True,
         }
-        invalid_url = client.post("/records", json={**record_payload, "certificate_url": "javascript:alert(1)"})
-        self.assertEqual(invalid_url.status_code, 422)
         record = client.post("/records", json=record_payload)
         self.assertEqual(record.status_code, 201, record.text)
         record_id = record.json()["id"]

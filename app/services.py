@@ -107,7 +107,9 @@ async def send_email_reminders(db: Session, items: list[dict], timing: str) -> i
             if url:
                 text_lines.append(f"办理入口：{url}")
             text_lines.append("")
-            link = f'<a href="{escape(url, quote=True)}">打开办理入口</a>' if url else "—"
+            # Free-form website values remain text unless they are web links.
+            web_url = url.strip() if url and url.strip().lower().startswith(("https://", "http://")) else None
+            link = f'<a href="{escape(web_url, quote=True)}">打开办理入口</a>' if web_url else escape(url or "—")
             html_rows.append(
                 "<tr>"
                 f"<td>{escape(person)}</td><td>{escape(certificate)}</td><td>{escape(label)}</td>"
