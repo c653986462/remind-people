@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import {
@@ -9,6 +9,8 @@ import {
 import { mockApi, type Certificate, type Person, type RecordAttachment, type RecordItem, type Reminder } from './mock'
 import { type UploadUserFile } from 'element-plus'
 import { exportXlsx } from './export-xlsx'
+
+const PdfCertificatePreview = defineAsyncComponent(() => import('./components/PdfCertificatePreview.vue'))
 
 type TabKey = 'dashboard' | 'records' | 'people' | 'certificates'
 type DialogKind = 'person' | 'certificate' | 'record'
@@ -101,6 +103,10 @@ const previewVisible = ref(false)
 const previewUrl = ref('')
 const previewAttachment = ref<RecordAttachment | null>(null)
 const previewBusy = ref(false)
+const previewBlob = shallowRef<Blob | null>(null)
+const previewError = ref('')
+let previewRequest: AbortController | null = null
+let previewGeneration = 0
 const recordAttachments = ref<RecordAttachment[]>([])
 const pendingPdfFiles = ref<UploadUserFile[]>([])
 const pendingImageFiles = ref<UploadUserFile[]>([])
@@ -529,26 +535,66 @@ function attachmentLimitReached() { ElMessage.warning('每条持证记录的 PDF
 
 async function showAttachmentPreview(attachment: RecordAttachment, recordId = detailRecord.value?.id) {
   if (!recordId) return
+  closeAttachmentPreview()
+  const generation = ++previewGeneration
+  const controller = new AbortController()
+  previewRequest = controller
+  previewAttachment.value = attachment
+  previewVisible.value = true
   previewBusy.value = true
   try {
-    const response = await fetch(attachmentUrl(recordId, attachment.id), { credentials: 'include' })
+    const response = await fetch(attachmentUrl(recordId, attachment.id), { credentials: 'include', signal: controller.signal })
     if (!response.ok) {
-      if (response.status === 401) currentUser.value = null
-      throw new Error('附件读取失败，请确认登录状态后重试')
+      if (response.status === 401) {
+        currentUser.value = null
+        csrfToken.value = ''
+        throw new Error('登录已过期，请重新登录后查看附件')
+      }
+      const payload = await response.json().catch(() => ({}))
+      throw new Error(typeof payload.detail === 'string' ? payload.detail : '附件读取失败，请稍后重试')
     }
     const blob = await response.blob()
-    previewUrl.value = URL.createObjectURL(blob)
-    previewAttachment.value = attachment
-    previewVisible.value = true
-  } catch (error) { ElMessage.error((error as Error).message) }
-  finally { previewBusy.value = false }
+    if (generation !== previewGeneration) return
+    previewBlob.value = blob
+    // Data URLs are permitted by the site's image policy; blob image URLs are not.
+    if (attachment.kind === 'image') {
+      const imageUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result))
+        reader.onerror = () => reject(new Error('图片读取失败'))
+        reader.readAsDataURL(blob)
+      })
+      if (generation === previewGeneration) previewUrl.value = imageUrl
+    }
+  } catch (error) {
+    if (generation === previewGeneration && !controller.signal.aborted) previewError.value = (error as Error).message
+  } finally {
+    if (generation === previewGeneration) { previewBusy.value = false; previewRequest = null }
+  }
 }
 
 function closeAttachmentPreview() {
+  ++previewGeneration
+  previewRequest?.abort()
+  previewRequest = null
   previewVisible.value = false
-  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+  previewBusy.value = false
   previewUrl.value = ''
+  previewBlob.value = null
+  previewError.value = ''
   previewAttachment.value = null
+}
+
+function downloadPreviewAttachment() {
+  if (!previewBlob.value || !previewAttachment.value) return
+  const url = URL.createObjectURL(previewBlob.value)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = previewAttachment.value.filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 function toggleAttachmentRemoval(attachmentId: number) {
@@ -1041,11 +1087,16 @@ onBeforeUnmount(() => { window.clearInterval(reminderTimer); window.clearInterva
       </template>
     </el-drawer>
 
-    <el-dialog v-model="previewVisible" :title="previewAttachment?.filename || '证书预览'" width="min(880px, calc(100vw - 32px))" class="attachment-preview-dialog" align-center @closed="closeAttachmentPreview">
-      <div v-loading="previewBusy" class="attachment-preview-stage">
-        <iframe v-if="previewUrl && previewAttachment?.kind === 'pdf'" :src="previewUrl" :title="previewAttachment.filename" class="pdf-preview-frame" />
-        <img v-else-if="previewUrl" :src="previewUrl" :alt="previewAttachment?.filename" class="image-preview" />
+    <el-dialog v-model="previewVisible" :title="previewAttachment?.filename || '证书预览'" width="min(880px, calc(100vw - 32px))" class="attachment-preview-dialog" align-center destroy-on-close @close="closeAttachmentPreview">
+      <div v-loading="previewBusy" class="attachment-preview-content">
+        <el-alert v-if="previewError" :title="previewError" type="error" show-icon :closable="false" />
+        <PdfCertificatePreview v-else-if="previewBlob && previewAttachment?.kind === 'pdf'" :blob="previewBlob" />
+        <div v-else class="attachment-preview-stage">
+          <img v-if="previewUrl" :src="previewUrl" :alt="previewAttachment?.filename" class="image-preview" />
+          <span v-else-if="previewBusy">正在读取证书…</span>
+        </div>
       </div>
+      <template #footer><el-button :disabled="!previewBlob" :icon="Download" @click="downloadPreviewAttachment">下载原文件</el-button><el-button @click="previewVisible = false">关闭</el-button></template>
     </el-dialog>
 
     <el-dialog v-model="emailSettingsVisible" title="邮箱提醒设置" width="min(540px, calc(100vw - 32px))" :close-on-click-modal="false" align-center>
