@@ -20,28 +20,7 @@ class PersonOut(PersonBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-class CertificateBase(BaseModel):
-    name: str = Field(min_length=1, max_length=150)
-    issuer: str | None = None
-    description: str | None = None
-
-
-class CertificateCreate(CertificateBase): pass
-class CertificateUpdate(CertificateBase): pass
-class CertificateOut(CertificateBase):
-    id: int
-    model_config = ConfigDict(from_attributes=True)
-
-
-class PersonCertificateBase(BaseModel):
-    person_id: int
-    certificate_id: int
-    certificate_no: str | None = None
-    validity_start_date: date | None = None
-    validity_end_date: date | None = None
-    expiry_date: date | None = None
-    continuing_education_date: date | None = None
-    renewal_date: date | None = None
+class WebsiteDetails(BaseModel):
     certificate_url: str | None = Field(default=None, max_length=500)
     education_url: str | None = Field(default=None, max_length=500)
     renewal_url: str | None = Field(default=None, max_length=500)
@@ -54,9 +33,6 @@ class PersonCertificateBase(BaseModel):
     renewal_account: str | None = Field(default=None, max_length=200)
     renewal_password: str | None = Field(default=None, max_length=1024, repr=False)
     renewal_notes: str | None = Field(default=None, max_length=5000)
-    remind_days: int = Field(default=30, ge=1, le=3650)
-    active: bool = True
-    notes: str | None = None
 
     @field_validator("certificate_url", "education_url", "renewal_url")
     @classmethod
@@ -67,6 +43,33 @@ class PersonCertificateBase(BaseModel):
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("网址必须是完整的 http 或 https 链接")
         return value.strip()
+
+
+class CertificateBase(WebsiteDetails):
+    name: str = Field(min_length=1, max_length=150)
+    issuer: str | None = None
+    description: str | None = None
+
+
+class CertificateCreate(CertificateBase): pass
+class CertificateUpdate(CertificateBase): pass
+class CertificateOut(CertificateBase):
+    id: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PersonCertificateBase(WebsiteDetails):
+    person_id: int
+    certificate_id: int
+    certificate_no: str | None = None
+    validity_start_date: date | None = None
+    validity_end_date: date | None = None
+    expiry_date: date | None = None
+    continuing_education_date: date | None = None
+    renewal_date: date | None = None
+    remind_days: int = Field(default=30, ge=1, le=3650)
+    active: bool = True
+    notes: str | None = None
 
 
 class PersonCertificateCreate(PersonCertificateBase): pass

@@ -448,7 +448,7 @@ def create_certificate(payload: CertificateCreate, db: DB):
 @protected.put("/certificates/{item_id}", response_model=CertificateOut)
 def update_certificate(item_id: int, payload: CertificateUpdate, db: DB):
     item = one_or_404(db, Certificate, item_id)
-    for key, value in payload.model_dump().items(): setattr(item, key, value)
+    for key, value in payload.model_dump(exclude_unset=True).items(): setattr(item, key, value)
     try: db.commit()
     except IntegrityError as exc:
         db.rollback()

@@ -29,6 +29,18 @@ class Certificate(Base):
     name: Mapped[str] = mapped_column(String(150), unique=True, index=True)
     issuer: Mapped[str | None] = mapped_column(String(150), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    certificate_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    education_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    renewal_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    certificate_account: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    certificate_password: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    certificate_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    education_account: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    education_password: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    education_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    renewal_account: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    renewal_password: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    renewal_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     holders: Mapped[list["PersonCertificate"]] = relationship(
         back_populates="certificate", cascade="all, delete-orphan"

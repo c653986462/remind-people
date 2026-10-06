@@ -1,17 +1,16 @@
+import type { WebsiteDetails } from './website-details'
+
 export type Person = { id: number; name: string; phone?: string; identity_number?: string; email?: string; department?: string; notes?: string }
-export type Certificate = { id: number; name: string; issuer?: string; description?: string }
+export type Certificate = { id: number; name: string; issuer?: string; description?: string } & WebsiteDetails
 export type RecordAttachment = { id: number; kind: 'pdf' | 'image'; filename: string; content_type: string; size_bytes: number; created_at: string }
 export type RecordItem = {
   id: number; person_id: number; certificate_id: number; certificate_no?: string
   validity_start_date?: string; validity_end_date?: string
   expiry_date?: string; continuing_education_date?: string; renewal_date?: string
-  certificate_url?: string; education_url?: string; renewal_url?: string; remind_days: number; active?: boolean; notes?: string
-  certificate_account?: string | null; certificate_password?: string | null; certificate_notes?: string | null
-  education_account?: string | null; education_password?: string | null; education_notes?: string | null
-  renewal_account?: string | null; renewal_password?: string | null; renewal_notes?: string | null
+  remind_days: number; active?: boolean; notes?: string
   attachments?: RecordAttachment[]
   person: Person; certificate: Certificate
-}
+} & WebsiteDetails
 export type Reminder = { record_id: number; person: string; certificate: string; event_type: string; label: string; target_date: string; days_left: number }
 
 type State = { people: Person[]; certificates: Certificate[]; records: Omit<RecordItem, 'person' | 'certificate'>[] }

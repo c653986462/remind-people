@@ -51,6 +51,8 @@ declare module 'vue' {
     ElTooltip: typeof import('element-plus/es')['ElTooltip']
     ElUpload: typeof import('element-plus/es')['ElUpload']
     PdfCertificatePreview: typeof import('./components/PdfCertificatePreview.vue')['default']
+    WebsiteDetailsPanel: typeof import('./components/WebsiteDetailsPanel.vue')['default']
+    WebsiteFormFields: typeof import('./components/WebsiteFormFields.vue')['default']
   }
   export interface GlobalDirectives {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']
