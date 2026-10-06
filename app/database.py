@@ -13,7 +13,11 @@ class Base(DeclarativeBase):
 
 
 def ensure_certificate_websites(connection):
-    columns = {column["name"] for column in inspect(connection).get_columns("certificates")}
+    inspector = inspect(connection)
+    # Partial legacy schemas may not have the certificate catalog yet.
+    if not inspector.has_table("certificates"):
+        return
+    columns = {column["name"] for column in inspector.get_columns("certificates")}
     for prefix in ("certificate", "education", "renewal"):
         for suffix, column_type in (("url", "VARCHAR(500)"), ("account", "VARCHAR(200)"), ("password", "VARCHAR(1024)"), ("notes", "TEXT")):
             column = f"{prefix}_{suffix}"
