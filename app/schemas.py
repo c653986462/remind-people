@@ -45,6 +45,15 @@ class PersonCertificateBase(BaseModel):
     certificate_url: str | None = Field(default=None, max_length=500)
     education_url: str | None = Field(default=None, max_length=500)
     renewal_url: str | None = Field(default=None, max_length=500)
+    certificate_account: str | None = Field(default=None, max_length=200)
+    certificate_password: str | None = Field(default=None, max_length=1024, repr=False)
+    certificate_notes: str | None = Field(default=None, max_length=5000)
+    education_account: str | None = Field(default=None, max_length=200)
+    education_password: str | None = Field(default=None, max_length=1024, repr=False)
+    education_notes: str | None = Field(default=None, max_length=5000)
+    renewal_account: str | None = Field(default=None, max_length=200)
+    renewal_password: str | None = Field(default=None, max_length=1024, repr=False)
+    renewal_notes: str | None = Field(default=None, max_length=5000)
     remind_days: int = Field(default=30, ge=1, le=3650)
     active: bool = True
     notes: str | None = None
@@ -126,4 +135,3 @@ class UserOut(BaseModel):
     username: str
 
     model_config = ConfigDict(from_attributes=True)
-

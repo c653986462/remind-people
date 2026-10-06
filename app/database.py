@@ -25,6 +25,12 @@ def ensure_schema(target_engine=engine):
             connection.execute(text("ALTER TABLE person_certificates ADD COLUMN validity_start_date DATE"))
         if "validity_end_date" not in record_columns:
             connection.execute(text("ALTER TABLE person_certificates ADD COLUMN validity_end_date DATE"))
+        # Optional website details are added in place, keeping existing records intact.
+        for prefix in ("certificate", "education", "renewal"):
+            for suffix, column_type in (("account", "VARCHAR(200)"), ("password", "VARCHAR(1024)"), ("notes", "TEXT")):
+                column = f"{prefix}_{suffix}"
+                if column not in record_columns:
+                    connection.execute(text(f"ALTER TABLE person_certificates ADD COLUMN {column} {column_type}"))
         # Keep the old displayed dates as the initial range, without changing expiry reminders.
         if "validity_start_date" not in record_columns and "issue_date" in record_columns:
             connection.execute(text(

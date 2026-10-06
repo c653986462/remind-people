@@ -6,6 +6,9 @@ export type RecordItem = {
   validity_start_date?: string; validity_end_date?: string
   expiry_date?: string; continuing_education_date?: string; renewal_date?: string
   certificate_url?: string; education_url?: string; renewal_url?: string; remind_days: number; active?: boolean; notes?: string
+  certificate_account?: string | null; certificate_password?: string | null; certificate_notes?: string | null
+  education_account?: string | null; education_password?: string | null; education_notes?: string | null
+  renewal_account?: string | null; renewal_password?: string | null; renewal_notes?: string | null
   attachments?: RecordAttachment[]
   person: Person; certificate: Certificate
 }

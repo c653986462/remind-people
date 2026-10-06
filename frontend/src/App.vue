@@ -113,7 +113,19 @@ const pendingImageFiles = ref<UploadUserFile[]>([])
 const removedAttachmentIds = ref(new Set<number>())
 const personForm = ref({ name: '', phone: '', identity_number: '', email: '', department: '', notes: '' })
 const certificateForm = ref({ name: '', issuer: '', description: '' })
-const recordForm = ref({ person_id: 0, certificate_id: 0, certificate_no: '', validity_start_date: '', validity_end_date: '', expiry_date: '', continuing_education_date: '', renewal_date: '', certificate_url: '', education_url: '', renewal_url: '', remind_days: 30, active: true, notes: '' })
+const websiteSections = [
+  { label: '更新', url: 'renewal_url', account: 'renewal_account', password: 'renewal_password', notes: 'renewal_notes' },
+  { label: '延期', url: 'certificate_url', account: 'certificate_account', password: 'certificate_password', notes: 'certificate_notes' },
+  { label: '继续教育', url: 'education_url', account: 'education_account', password: 'education_password', notes: 'education_notes' },
+] as const
+function websiteDetails(record?: RecordItem) {
+  return {
+    renewal_account: record?.renewal_account ?? '', renewal_password: record?.renewal_password ?? '', renewal_notes: record?.renewal_notes ?? '',
+    certificate_account: record?.certificate_account ?? '', certificate_password: record?.certificate_password ?? '', certificate_notes: record?.certificate_notes ?? '',
+    education_account: record?.education_account ?? '', education_password: record?.education_password ?? '', education_notes: record?.education_notes ?? '',
+  }
+}
+const recordForm = ref({ person_id: 0, certificate_id: 0, certificate_no: '', validity_start_date: '', validity_end_date: '', expiry_date: '', continuing_education_date: '', renewal_date: '', certificate_url: '', education_url: '', renewal_url: '', ...websiteDetails(), remind_days: 30, active: true, notes: '' })
 const validityRange = computed<[string, string] | null>({
   get: (): [string, string] | null => recordForm.value.validity_start_date || recordForm.value.validity_end_date
     ? [recordForm.value.validity_start_date, recordForm.value.validity_end_date]
@@ -443,7 +455,7 @@ function openCreate(kind: DialogKind) {
   if (kind === 'person') personForm.value = { name: '', phone: '', identity_number: '', email: '', department: '', notes: '' }
   if (kind === 'certificate') certificateForm.value = { name: '', issuer: '', description: '' }
   if (kind === 'record') {
-    recordForm.value = { person_id: people.value[0]?.id || 0, certificate_id: certificates.value[0]?.id || 0, certificate_no: '', validity_start_date: '', validity_end_date: '', expiry_date: '', continuing_education_date: '', renewal_date: '', certificate_url: '', education_url: '', renewal_url: '', remind_days: 30, active: true, notes: '' }
+    recordForm.value = { person_id: people.value[0]?.id || 0, certificate_id: certificates.value[0]?.id || 0, certificate_no: '', validity_start_date: '', validity_end_date: '', expiry_date: '', continuing_education_date: '', renewal_date: '', certificate_url: '', education_url: '', renewal_url: '', ...websiteDetails(), remind_days: 30, active: true, notes: '' }
     resetRecordAttachmentDraft()
   }
   dialogVisible.value = true
@@ -462,7 +474,7 @@ function openEdit(kind: DialogKind, item: Person | Certificate | RecordItem) {
   }
   if (kind === 'record') {
     const record = item as RecordItem
-    recordForm.value = { person_id: record.person_id, certificate_id: record.certificate_id, certificate_no: record.certificate_no || '', validity_start_date: record.validity_start_date || '', validity_end_date: record.validity_end_date || '', expiry_date: record.expiry_date || '', continuing_education_date: record.continuing_education_date || '', renewal_date: record.renewal_date || '', certificate_url: record.certificate_url || '', education_url: record.education_url || '', renewal_url: record.renewal_url || '', remind_days: record.remind_days || 30, active: record.active !== false, notes: record.notes || '' }
+    recordForm.value = { person_id: record.person_id, certificate_id: record.certificate_id, certificate_no: record.certificate_no || '', validity_start_date: record.validity_start_date || '', validity_end_date: record.validity_end_date || '', expiry_date: record.expiry_date || '', continuing_education_date: record.continuing_education_date || '', renewal_date: record.renewal_date || '', certificate_url: record.certificate_url || '', education_url: record.education_url || '', renewal_url: record.renewal_url || '', ...websiteDetails(record), remind_days: record.remind_days || 30, active: record.active !== false, notes: record.notes || '' }
     resetRecordAttachmentDraft(record.attachments || [])
   }
   dialogVisible.value = true
@@ -987,10 +999,13 @@ onBeforeUnmount(() => { window.clearInterval(reminderTimer); window.clearInterva
         <el-form-item label="更新日期"><el-date-picker v-model="recordForm.renewal_date" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" /></el-form-item>
         <el-form-item label="延期日期"><el-date-picker v-model="recordForm.expiry_date" type="date" value-format="YYYY-MM-DD" placeholder="选择延期办理/提醒日期" /></el-form-item>
         <el-form-item label="继续教育日期"><el-date-picker v-model="recordForm.continuing_education_date" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" /></el-form-item>
-        <div class="form-section span-two"><div><b>对应办理网址</b><span>分别填写更新、延期和继续教育入口</span></div></div>
-        <el-form-item label="更新网址" class="span-two"><el-input v-model="recordForm.renewal_url" :prefix-icon="Link" placeholder="https://" /></el-form-item>
-        <el-form-item label="延期网址" class="span-two"><el-input v-model="recordForm.certificate_url" :prefix-icon="Link" placeholder="https://" /></el-form-item>
-        <el-form-item label="继续教育网址" class="span-two"><el-input v-model="recordForm.education_url" :prefix-icon="Link" placeholder="https://" /></el-form-item>
+        <div class="form-section span-two"><div><b>对应办理网址</b><span>分别维护办理入口、账号、密码和备注</span></div></div>
+        <div v-for="website in websiteSections" :key="website.url" class="website-form-card span-two form-grid">
+          <el-form-item :label="`${website.label}网址`" :prop="website.url" class="span-two"><el-input v-model="recordForm[website.url]" :prefix-icon="Link" placeholder="https://" maxlength="500" /></el-form-item>
+          <el-form-item label="账号" :prop="website.account"><el-input v-model="recordForm[website.account]" :name="website.account" autocomplete="off" placeholder="网站登录账号（选填）" maxlength="200" /></el-form-item>
+          <el-form-item label="密码" :prop="website.password"><el-input :key="`${editingId}-${website.password}`" v-model="recordForm[website.password]" :name="website.password" type="password" show-password autocomplete="new-password" placeholder="网站登录密码（选填）" maxlength="1024" /></el-form-item>
+          <el-form-item label="备注" :prop="website.notes" class="span-two"><el-input v-model="recordForm[website.notes]" type="textarea" :rows="2" placeholder="该网址的办理说明或其他备注（选填）" maxlength="5000" /></el-form-item>
+        </div>
         <el-form-item label="提前提醒天数"><el-input-number v-model="recordForm.remind_days" :min="1" :max="3650" controls-position="right" /></el-form-item>
         <el-form-item label="记录状态"><el-switch v-model="recordForm.active" active-text="有效" inactive-text="停用" /></el-form-item>
         <el-form-item label="备注" class="span-two"><el-input v-model="recordForm.notes" type="textarea" :rows="2" placeholder="选填" /></el-form-item>
@@ -1058,6 +1073,19 @@ onBeforeUnmount(() => { window.clearInterval(reminderTimer); window.clearInterva
             <el-descriptions-item label="提前提醒">{{ detailRecord.remind_days }} 天</el-descriptions-item>
             <el-descriptions-item label="备注">{{ detailRecord.notes || '—' }}</el-descriptions-item>
           </el-descriptions>
+
+          <div class="attachment-section website-detail-section">
+            <div class="detail-section-heading"><div><h3>对应办理网址</h3></div></div>
+            <div v-for="website in websiteSections" :key="`${detailRecord.id}-${website.url}`" class="website-detail-card">
+              <h4>{{ website.label }}</h4>
+              <el-descriptions :column="1" border size="small">
+                <el-descriptions-item label="网址"><el-button v-if="detailRecord[website.url]" link type="primary" class="website-detail-url" @click="openItemUrl(detailRecord[website.url])">{{ detailRecord[website.url] }}</el-button><span v-else>—</span></el-descriptions-item>
+                <el-descriptions-item label="账号"><span class="website-detail-text">{{ detailRecord[website.account] || '—' }}</span></el-descriptions-item>
+                <el-descriptions-item label="密码"><el-input v-if="detailRecord[website.password]" :model-value="detailRecord[website.password]" type="password" show-password readonly autocomplete="off" :aria-label="`${website.label}网站密码`" /><span v-else>—</span></el-descriptions-item>
+                <el-descriptions-item label="备注"><span class="website-detail-text">{{ detailRecord[website.notes] || '—' }}</span></el-descriptions-item>
+              </el-descriptions>
+            </div>
+          </div>
 
           <div class="attachment-section">
             <div class="detail-section-heading"><div><h3>PDF 证书</h3><span>{{ detailPdfCount }}/9 个</span></div></div>

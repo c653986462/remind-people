@@ -499,7 +499,8 @@ def create_record(payload: PersonCertificateCreate, db: DB):
 def update_record(item_id: int, payload: PersonCertificateUpdate, db: DB):
     item = load_record(db, item_id)
     one_or_404(db, Person, payload.person_id); one_or_404(db, Certificate, payload.certificate_id)
-    for key, value in payload.model_dump().items(): setattr(item, key, value)
+    # Older clients do not send website credentials; preserve omitted values.
+    for key, value in payload.model_dump(exclude_unset=True).items(): setattr(item, key, value)
     db.commit(); return load_record(db, item_id)
 
 

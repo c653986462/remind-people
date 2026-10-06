@@ -176,6 +176,11 @@ button, input, textarea { font: inherit; }
 .form-grid .el-input__wrapper, .form-grid .el-textarea__inner, .form-grid .el-select__wrapper { box-shadow: 0 0 0 1px #e3e8ef inset; }
 .form-grid .el-input__wrapper:hover, .form-grid .el-select__wrapper:hover { box-shadow: 0 0 0 1px #bdc8d7 inset; }
 .span-two { grid-column: 1 / -1; }
+.website-form-card { padding: 12px 14px 0; margin-bottom: 12px; border: 1px solid #edf0f4; border-radius: 8px; background: #fafbfd; }
+.website-detail-card + .website-detail-card { margin-top: 14px; }
+.website-detail-card h4 { margin: 0 0 8px; color: #45546a; font-size: 12px; }
+.website-detail-url.el-button { height: auto; padding: 0; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.website-detail-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .form-section { padding: 8px 0 3px; margin: 3px 0 2px; border-top: 1px solid #edf0f4; }
 .form-section:first-child { padding-top: 0; border-top: 0; }
 .form-section > div { display: flex; align-items: baseline; gap: 10px; }
